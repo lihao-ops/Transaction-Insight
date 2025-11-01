@@ -1,152 +1,129 @@
-# 🧩 Transaction Insight
+# 🧭 Transaction Insight
 
-> A Spring Boot–based lab for mastering transaction mechanisms —  
-> from MySQL local transactions to Spring @Transactional and distributed transaction patterns.
-
----
-
-## 🚀 Overview
-
-**Transaction Insight** 是一个基于 **Spring Boot** 的事务机制全景实验项目，  
-旨在通过实践深入理解从 **数据库层事务** 到 **Spring 框架事务**，再到 **分布式事务** 的底层原理与实现方式。  
-
-本项目适合想要：
-- 系统掌握 **事务的 ACID 特性与隔离级别**；
-- 理解 **@Transactional 注解** 在 Spring 容器中的代理与传播行为；
-- 亲手实现 **消息表、XA、TCC 等分布式事务模型**；
-- 在面试中展示扎实事务掌控能力的开发者。
+A production-grade lab for mastering transaction management from the storage engine to distributed systems. The project is organised as a multi-module Spring Boot workspace so that every topic can be explored in isolation while still sharing common infrastructure such as datasource, Kafka and Redis configuration.
 
 ---
 
-## 🧠 Learning Goals
-
-| 模块 | 学习目标 |
-|------|-----------|
-| 🧩 `tx-local` | 掌握 MySQL 原生事务控制（commit / rollback / isolation level） |
-| ⚙️ `tx-spring` | 理解 Spring 声明式与编程式事务、传播机制与异常回滚规则 |
-| 🌐 `tx-distributed` | 实践分布式事务：消息补偿、XA 两阶段提交、TCC 模型 |
-
----
-
-## 📁 Project Structure
+## 🏗️ Architecture Overview
 
 ```
-
 transaction-insight/
-├── tx-local/           # MySQL 原生事务实验（JDBC 手动提交与隔离级别测试）
-├── tx-spring/          # Spring 声明式与编程式事务（@Transactional / TransactionTemplate）
-├── tx-distributed/     # 分布式事务实验（消息表、XA、TCC）
-├── common/             # 公共模块（DTO、工具类、配置）
-└── README.md           # 项目说明文件
+├── common-infrastructure/      # Shared datasource, Redis, Kafka & test fixtures
+├── tx-foundation/              # MySQL isolation, MVCC visualisation and deadlock labs
+├── tx-spring-core/             # Spring @Transactional behaviour and performance experiments
+├── tx-distributed-patterns/    # Transactional outbox, Saga notes and custom TCC framework
+├── tx-monitoring/              # Transaction metrics & slow transaction alerting
+└── tx-chaos-engineering/       # Chaos experiments (network partitions, failure injection)
+```
 
-````
-
----
-
-## ⚙️ Tech Stack
-
-| 技术 | 用途 |
-|------|------|
-| **Spring Boot 3.5.x** | 项目主框架 |
-| **MySQL 8.x** | 本地事务与隔离级别实验 |
-| **Spring Data / MyBatis** | ORM 与事务集成 |
-| **HikariCP** | 数据源与连接池 |
-| **RabbitMQ / Kafka** | 消息驱动分布式事务 |
-| **Seata / Atomikos** | TCC / XA 分布式事务管理 |
-| **Docker Compose** | 一键启动数据库与消息中间件 |
-| **JUnit 5** | 单元测试事务行为 |
+Each module is a Spring Boot application (or library) with its own domain model and tests. The layout mirrors the interview-ready curriculum described in the project brief so you can jump directly to the scenario that interests you.
 
 ---
 
-## 🔍 Key Topics
+## 🛠️ Core Technology Stack
 
-- ✅ MySQL 事务四大特性（ACID）  
-- ✅ 各隔离级别下的并发问题（脏读、不可重复读、幻读）  
-- ✅ Spring `@Transactional` 原理（AOP 代理、传播行为）  
-- ✅ 回滚策略：受检异常与非受检异常的差异  
-- ✅ 编程式事务控制（`TransactionTemplate`、`PlatformTransactionManager`）  
-- ✅ 分布式事务：消息表、TCC、XA 两阶段提交  
-- ✅ 补偿与幂等性设计
-
----
-
-## 🧪 Example: Local Transaction Demo
-
-```java
-@Transactional
-public void transfer(Long fromId, Long toId, BigDecimal amount) {
-    Account from = accountRepository.findById(fromId).get();
-    Account to = accountRepository.findById(toId).get();
-
-    from.decrease(amount);
-    to.increase(amount);
-
-    accountRepository.save(from);
-    accountRepository.save(to);
-}
-````
-
-> 实验目标：
-> 在不同隔离级别下模拟转账并发问题，分析事务边界与传播影响。
+| Layer | Technology | Notes |
+|-------|------------|-------|
+| Language | Java 17 | Allows usage of records, switch pattern matching and virtual threads in experiments |
+| Framework | Spring Boot 3.3.x | Dependency management for all modules |
+| Database | MySQL 8 (Tested with H2 compatibility) | Isolation, MVCC and deadlock reproductions |
+| Messaging | Apache Kafka 4 ready configuration | Used by the transactional outbox relay |
+| Cache | Redis (Lettuce) | Shared caching and idempotency storage |
+| Distributed Tx | Custom TCC manager + transactional outbox | Demonstrates compensating transactions |
+| Observability | Micrometer + Prometheus | AOP aspect records transaction timings |
+| Testing | JUnit 5, Spring Boot Test, Testcontainers | Foundation for reproducible experiments |
 
 ---
 
-## 🧭 Run Locally
+## 📦 Module Highlights
+
+### `common-infrastructure`
+Shared configuration for datasource, Redis and Kafka that matches the reference YAML from the prompt. All services import this module to ensure consistent connectivity settings.
+
+### `tx-foundation`
+Hands-on experiments for InnoDB internals:
+- Dirty read verification using two physical connections under `READ_UNCOMMITTED`.
+- MVCC snapshot capture via a simple visualiser service.
+- Deadlock reproduction utility that intentionally cross-locks resources.
+
+### `tx-spring-core`
+Deep dives into Spring transaction semantics:
+- `PropagationLabService` benchmarks `REQUIRED` vs `REQUIRES_NEW` batches.
+- Self-invocation experiment showing proxy-based transaction loss.
+- Tests rely on H2 to keep feedback fast.
+
+### `tx-distributed-patterns`
+Modern microservice patterns:
+- Transactional outbox implementation with scheduled relay to Kafka.
+- Lightweight TCC transaction manager with an in-memory account example.
+- Spring Boot tests cover message persistence and TCC compensation.
+
+### `tx-monitoring`
+An AspectJ-based Micrometer aspect that records execution time for every `@Transactional` boundary, ready to export to Prometheus / Grafana.
+
+### `tx-chaos-engineering`
+Skeleton for Testcontainers + Toxiproxy experiments. The provided test is disabled by default and documents how to simulate network partitions around a TCC confirm phase.
+
+---
+
+## 🚀 Getting Started
 
 ```bash
-# 克隆仓库
-git clone https://github.com/lihao-ops/Transaction-Insight.git
+# Compile all modules
+mvn clean verify
 
-cd Transaction-Insight
+# Run a specific module's tests (e.g. foundation)
+mvn -pl tx-foundation test
 
-# 启动 MySQL 与 RabbitMQ（如需分布式事务实验）
-docker-compose up -d
-
-# 启动 Spring Boot 应用
-mvn spring-boot:run
+# Launch the distributed patterns module for manual exploration
+mvn -pl tx-distributed-patterns spring-boot:run
 ```
 
----
-
-## 📊 Roadmap
-
-* [x] MySQL 本地事务控制实验
-* [x] Spring 声明式事务传播机制
-* [ ] 分布式事务（消息补偿模型）
-* [ ] Seata TCC 模型实践
-* [ ] 性能与一致性对比分析报告
+The default `application.yml` in `common-infrastructure` mirrors the interview-grade configuration provided in the prompt. Override credentials or hosts via standard Spring Boot property overrides when running locally.
 
 ---
 
-## 📚 References
+## 🧪 Featured Experiment: Dirty Read Demonstration
 
-* 《深入理解 Java 虚拟机（第三版）》
-* 《Spring 实战（第六版）》
-* 阿里巴巴分布式事务规范（GTS / Seata）
-* MySQL 官方文档 — Transaction and Isolation Levels
-* Spring Framework Docs — Transaction Management
+```java
+try (Connection writer = dataSource.getConnection();
+     Connection reader = dataSource.getConnection()) {
+    writer.setAutoCommit(false);
+    reader.setAutoCommit(false);
 
----
+    writer.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
+    reader.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
 
-## 🧩 Author
+    updateBalance(writer, 1L, new BigDecimal("1000"));
+    BigDecimal dirtyBalance = queryBalance(reader, 1L); // -> 1000 (dirty)
 
-**Li Hao（小李）**
-
-> Backend Engineer @ Wind Information
-> Passionate about high-concurrency architectures, JVM internals, and distributed systems.
-
-📬 GitHub: [@lihao-ops](https://github.com/lihao-ops)
-
----
-
-## 🧱 License
-
-This project is licensed under the MIT License.
-
----
-
+    writer.rollback();
+    BigDecimal cleanBalance = queryBalance(reader, 1L); // -> 500 (snapshot)
+}
 ```
 
+This test-backed snippet is part of the `tx-foundation` module and can be executed with `mvn -pl tx-foundation test`.
+
 ---
-方便后续在分布式事务阶段（消息补偿 / TCC）直接跑实验？
-```
+
+## 📈 Observability
+
+The monitoring module ships with `TransactionMetricsAspect`, automatically pushing Micrometer timers tagged by method signature. Hook it into Prometheus by adding the registry dependency at the application level.
+
+---
+
+## 🧭 Roadmap
+
+- [x] MySQL isolation level validation suite
+- [x] Spring propagation performance harness
+- [x] Transactional outbox implementation
+- [x] In-memory TCC framework prototype
+- [ ] Full Saga choreography sample
+- [ ] Seata AT/TCC integration module
+- [ ] Automated chaos scenario suite with Docker orchestration
+
+---
+
+## 📄 License
+
+MIT License © 2024 Transaction Insight Team
