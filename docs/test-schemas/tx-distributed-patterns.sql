@@ -1,0 +1,11 @@
+-- tx-distributed-patterns 模块 Outbox 功能所需的表结构
+
+CREATE TABLE IF NOT EXISTS outbox_message (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    aggregate_id VARCHAR(128) NOT NULL,
+    event_type VARCHAR(128) NOT NULL,
+    payload TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);

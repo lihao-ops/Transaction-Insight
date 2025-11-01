@@ -23,6 +23,15 @@ import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * <p>
+ * 测试目标：验证 MySQL 在 READ_UNCOMMITTED 隔离级别下会出现脏读现象，并给出实际 SQL 操作。
+ * 通过 {@link MySQLContainer} 启动临时库，也可以按 README 指引改为本地实例以避免 Docker 依赖。
+ * </p>
+ * <p>
+ * 预期现象：读事务能读取到未提交的余额 1000，回滚后再次读取为 500；实际运行结果与预期一致。
+ * </p>
+ */
 @SpringBootTest
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @Testcontainers
@@ -35,6 +44,11 @@ class MySqlIsolationIntegrationTest {
                     .withPassword("test_password")
                     .withDatabaseName("transaction_test");
 
+    /**
+     * 将 Testcontainers 中的连接信息注入到 Spring 配置，确保测试与真实环境一致。
+     *
+     * @param registry Spring Test 提供的属性注册器
+     */
     @DynamicPropertySource
     static void overrideDataSourceProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", MYSQL_CONTAINER::getJdbcUrl);
@@ -51,12 +65,20 @@ class MySqlIsolationIntegrationTest {
     @Autowired
     private DataSource dataSource;
 
+    /**
+     * 初始化一条账户记录，作为脏读实验的基线数据。
+     */
     @BeforeEach
     void setup() {
         repository.deleteAll();
         repository.save(new Account(new BigDecimal("500")));
     }
 
+    /**
+     * 测试方法：在两个 READ_UNCOMMITTED 事务中分别执行写入和读取，验证脏读与回滚后的最终一致性。
+     *
+     * @throws Exception SQL 操作失败时抛出
+     */
     @Test
     @DisplayName("READ UNCOMMITTED allows dirty read")
     void dirtyReadOccursUnderReadUncommitted() throws Exception {
@@ -80,6 +102,9 @@ class MySqlIsolationIntegrationTest {
         }
     }
 
+    /**
+     * 执行余额更新语句，模拟尚未提交的写事务。
+     */
     private void updateBalance(Connection connection, long id, BigDecimal amount) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement("UPDATE account SET balance = ? WHERE id = ?")) {
             ps.setBigDecimal(1, amount);
@@ -88,6 +113,9 @@ class MySqlIsolationIntegrationTest {
         }
     }
 
+    /**
+     * 查询余额，帮助验证不同事务视图下的数据一致性。
+     */
     private BigDecimal queryBalance(Connection connection, long id) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement("SELECT balance FROM account WHERE id = ?")) {
             ps.setLong(1, id);
