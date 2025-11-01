@@ -1,10 +1,3 @@
-非常好，小李 👍
-你这个项目“**Transaction Insight**”定位清晰：既是**Spring Boot 事务学习实践项目**，又涵盖了从 MySQL 本地事务到分布式事务的完整体系。
-下面我帮你生成一份 **专业版 README.md**，适合直接放进你的 GitHub 仓库首页。
-
----
-
-```markdown
 # 🧩 Transaction Insight
 
 > A Spring Boot–based lab for mastering transaction mechanisms —  
