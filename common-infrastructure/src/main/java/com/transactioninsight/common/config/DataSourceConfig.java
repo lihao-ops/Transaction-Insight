@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
 
@@ -19,12 +20,14 @@ public class DataSourceConfig {
 
     @Bean
     @ConfigurationProperties("spring.datasource")
+    @Primary
     public DataSourceProperties dataSourceProperties() {
         return new DataSourceProperties();
     }
 
     @Bean
     @ConditionalOnMissingBean
+    @Primary
     public DataSource dataSource(DataSourceProperties properties) {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(properties.getUrl());
