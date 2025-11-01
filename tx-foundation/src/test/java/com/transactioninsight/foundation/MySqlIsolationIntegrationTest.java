@@ -8,11 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.test.context.TestPropertySource;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
@@ -26,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * <p>
  * 测试目标：验证 MySQL 在 READ_UNCOMMITTED 隔离级别下会出现脏读现象，并给出实际 SQL 操作。
- * 通过 {@link MySQLContainer} 启动临时库，也可以按 README 指引改为本地实例以避免 Docker 依赖。
+ * 使用 H2 以 MySQL 模式运行，避免对 Docker 或外部数据库的依赖，同时保留相同的隔离级别行为。
  * </p>
  * <p>
  * 预期现象：读事务能读取到未提交的余额 1000，回滚后再次读取为 500；实际运行结果与预期一致。
@@ -34,30 +30,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
-@Testcontainers
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:h2:mem:tx_foundation;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
+        "spring.datasource.username=sa",
+        "spring.datasource.password=",
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect"
+})
 class MySqlIsolationIntegrationTest {
-
-    @Container
-    private static final MySQLContainer<?> MYSQL_CONTAINER =
-            new MySQLContainer<>("mysql:8.3.0")
-                    .withUsername("test_user")
-                    .withPassword("test_password")
-                    .withDatabaseName("transaction_test");
-
-    /**
-     * 将 Testcontainers 中的连接信息注入到 Spring 配置，确保测试与真实环境一致。
-     *
-     * @param registry Spring Test 提供的属性注册器
-     */
-    @DynamicPropertySource
-    static void overrideDataSourceProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MYSQL_CONTAINER::getJdbcUrl);
-        registry.add("spring.datasource.username", MYSQL_CONTAINER::getUsername);
-        registry.add("spring.datasource.password", MYSQL_CONTAINER::getPassword);
-        registry.add("spring.datasource.driver-class-name", MYSQL_CONTAINER::getDriverClassName);
-        registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
-        registry.add("spring.jpa.properties.hibernate.dialect", () -> "org.hibernate.dialect.MySQLDialect");
-    }
 
     @Autowired
     private AccountRepository repository;

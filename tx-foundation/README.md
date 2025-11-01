@@ -6,20 +6,15 @@
 - 复用 `common-infrastructure` 提供的基础配置，专注于数据库层面的事务机制。
 
 ## 启动与运行
-- 运行集成测试（默认使用 Testcontainers，可根据需要改为本地 MySQL）：
+- 运行集成测试（默认使用 H2 的 MySQL 模式，无需 Docker 或外部数据库）：
   ```bash
-  # 使用本地 MySQL 避免 Docker：提前创建库并导入 docs/test-schemas/tx-foundation.sql
-  mvn -pl tx-foundation test \
-    -Dspring.test.container.enabled=false \
-    -Dspring.datasource.url=jdbc:mysql://localhost:3306/transaction_test \
-    -Dspring.datasource.username=root \
-    -Dspring.datasource.password=secret
+  mvn -pl tx-foundation test
   ```
+- 如需对接真实 MySQL，可在命令行传入标准 Spring 属性覆盖数据源。
 - 启动 Spring Boot 应用以便调试服务类：
   ```bash
   mvn -pl tx-foundation spring-boot:run
   ```
-- 若仍希望使用 Testcontainers，需要本地 Docker 环境并保持联网。
 
 ## 依赖关系
 - 依赖 `common-infrastructure` 获取数据源、Redis、Kafka 等配置。
