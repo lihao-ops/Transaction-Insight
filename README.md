@@ -31,7 +31,7 @@ Each module is a Spring Boot application (or library) with its own domain model 
 | Cache | Redis (Lettuce) | Shared caching and idempotency storage |
 | Distributed Tx | Custom TCC manager + transactional outbox | Demonstrates compensating transactions |
 | Observability | Micrometer + Prometheus | AOP aspect records transaction timings |
-| Testing | JUnit 5, Spring Boot Test, Testcontainers | Foundation for reproducible experiments |
+| Testing | JUnit 5, Spring Boot Test (H2) | Foundation for reproducible experiments without Docker |
 
 ---
 
@@ -62,7 +62,7 @@ Modern microservice patterns:
 An AspectJ-based Micrometer aspect that records execution time for every `@Transactional` boundary, ready to export to Prometheus / Grafana.
 
 ### `tx-chaos-engineering`
-Skeleton for Testcontainers + Toxiproxy experiments. The provided test is disabled by default and documents how to simulate network partitions around a TCC confirm phase.
+Chaos experiment scaffolding for the TCC confirm phase. The disabled sample test explains how to pair the services with external fault-injection tools (tc, Chaos Mesh, etc.).
 
 ---
 
