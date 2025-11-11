@@ -12,6 +12,11 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/**
+ * 测试目标：验证转账过程中出现异常时事务整体回滚。
+ * 事务知识点：原子性（Atomicity），确保部分成功时不会破坏资金平衡。
+ * 说明：调用含故障的 transferAndFail，断言异常抛出且两边余额维持初始值。
+ */
 class AtomicityIntegrationTest extends AbstractMySqlTransactionIntegrationTest {
 
     private static final Long ALICE = 1L;

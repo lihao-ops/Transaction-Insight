@@ -14,7 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 测试目标：验证 {@link MvccVisualizer} 在 REPEATABLE_READ 中返回的快照余额始终等于初始值。
- * 预期结果：无论数据库是否被其他事务修改，当前事务读取的余额都保持 300，实际运行亦符合预期。
+ * 事务知识点：多版本并发控制（MVCC）如何为快照读提供可重复读的隔离级别。
+ * 说明：在其他事务可能更新数据的情况下读取快照，确认余额保持 300，符合 MVCC 的设计。
  */
 @SpringBootTest
 class MvccVisualizerTest {

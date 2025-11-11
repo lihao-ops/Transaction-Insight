@@ -16,6 +16,11 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * 测试目标：在高并发转账下验证资金总额保持不变。
+ * 事务知识点：一致性（Consistency）与约束保持，强调业务层事务保证守恒。
+ * 说明：多线程执行 transfer 操作，断言总余额未变化且各账户余额不为负值。
+ */
 class ConsistencyIntegrationTest extends AbstractMySqlTransactionIntegrationTest {
 
     private static final Long ALICE = 1L;

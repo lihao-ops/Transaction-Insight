@@ -9,8 +9,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * 测试目标：为 TCC 方案引入网络故障/数据库故障的混沌实验模板。
- * 示例默认禁用，推荐结合真实环境或手工注入故障再执行，以观察 Confirm 阶段的补偿逻辑。
+ * 测试目标：为 TCC 分布式事务注入网络/数据库故障的混沌实验模板。
+ * 事务知识点：Try-Confirm-Cancel 的补偿与幂等设计，重点观察 Confirm 失败时的回滚策略。
+ * 说明：测试默认禁用，需配合人工或外部工具制造故障，运行后可验证 TCC 补偿链路是否生效。
  */
 @SpringBootTest(classes = DistributedPatternsApplication.class)
 @Disabled("Requires manual fault injection or external chaos tooling")

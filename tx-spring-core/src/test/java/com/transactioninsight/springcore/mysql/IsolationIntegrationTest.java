@@ -17,6 +17,11 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * 测试目标：通过并发读写模拟 READ_COMMITTED 与 REPEATABLE_READ 下的隔离差异。
+ * 事务知识点：隔离性（Isolation）中“不可重复读”的出现与避免条件。
+ * 说明：两个线程分别模拟读事务与写事务，验证 READ_COMMITTED 会看到更新，而 REPEATABLE_READ 能维持快照。
+ */
 class IsolationIntegrationTest extends AbstractMySqlTransactionIntegrationTest {
 
     private static final Long ALICE = 1L;

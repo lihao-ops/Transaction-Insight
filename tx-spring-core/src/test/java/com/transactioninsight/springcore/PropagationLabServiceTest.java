@@ -12,7 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 测试目标：验证事务传播实验服务的性能对比与自调用特性。
- * 预期结果：REQUIRED 批量写入耗时小于 REQUIRES_NEW，自调用保持 3 条记录且无事务新建，实际运行符合预期。
+ * 事务知识点：Spring 事务传播行为（REQUIRED、REQUIRES_NEW）以及自调用导致的代理失效。
+ * 说明：比较不同传播级别的批量插入耗时，并验证未经过代理的自调用不会开启新事务。
  */
 @SpringBootTest
 class PropagationLabServiceTest {
