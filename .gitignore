@@ -27,6 +27,7 @@ Thumbs.db
 # 配置文件 (重要！保护敏感信息)
 application*.properties
 application*.yml
+!tx-spring-core/src/test/resources/application-test.yml
 /config/
 secrets/
 !services/quant-stock-list/src/main/resources/application.yml
