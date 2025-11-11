@@ -10,6 +10,11 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+/**
+ * 测试基类目标：为 MySQL 事务实验提供隔离的容器化数据库环境。
+ * 事务知识点支撑：通过 Testcontainers 动态启动真实 MySQL，保障 ACID 各维度测试的可重复性。
+ * 说明：统一配置数据源与 Spring Profile，子类聚焦具体的事务特性验证。
+ */
 @Testcontainers
 @SpringBootTest
 @ActiveProfiles("test")

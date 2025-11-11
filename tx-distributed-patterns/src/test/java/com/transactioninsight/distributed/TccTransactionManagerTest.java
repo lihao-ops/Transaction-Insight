@@ -12,7 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 测试目标：验证 TCC 管理器在 confirm/rollback 阶段对冻结金额的处理符合预期。
- * 预期：commit 后冻结金额为 0，rollback 后同样恢复为 0，实际结果与预期一致。
+ * 事务知识点：分布式事务的补偿事务模式（TCC），强调 Try 阶段资源冻结与后续解冻。
+ * 说明：模拟 commit 与 rollback 两种路径，断言冻结资金被释放，体现分支事务的一致性保障。
  */
 @SpringBootTest
 class TccTransactionManagerTest {

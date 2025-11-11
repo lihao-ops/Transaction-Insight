@@ -25,6 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 使用 H2 以 MySQL 模式运行，避免对 Docker 或外部数据库的依赖，同时保留相同的隔离级别行为。
  * </p>
  * <p>
+ * 事务知识点：隔离性（Isolation）中的脏读（Dirty Read），通过对比提交前后的余额演示读写冲突。
+ * </p>
+ * <p>
  * 预期现象：读事务能读取到未提交的余额 1000，回滚后再次读取为 500；实际运行结果与预期一致。
  * </p>
  */

@@ -15,6 +15,11 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * 测试目标：验证提交后的账户余额在新连接中仍能读取。
+ * 事务知识点：持久性（Durability），关注提交日志刷新后的数据可见性。
+ * 说明：先通过事务执行充值，再用新的 JDBC 连接读取余额，确保结果与服务层读取一致。
+ */
 class DurabilityIntegrationTest extends AbstractMySqlTransactionIntegrationTest {
 
     private static final Long ALICE = 1L;

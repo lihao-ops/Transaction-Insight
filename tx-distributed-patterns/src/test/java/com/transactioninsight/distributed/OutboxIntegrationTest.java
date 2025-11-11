@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 测试目标：验证订单服务在创建订单时会将消息写入 outbox 表。
- * 预期结果：调用一次 createOrder 后生成一条 PENDING 消息；实际执行与预期一致。
+ * 事务知识点：本地消息表（Transactional Outbox）保证本地事务与异步消息的一致投递。
+ * 说明：调用 createOrder 后断言产生一条待发布消息，KafkaTemplate 使用 Mock 避免外部依赖。
  */
 @SpringBootTest
 class OutboxIntegrationTest {
