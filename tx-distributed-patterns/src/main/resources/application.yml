@@ -1,36 +1,22 @@
+server:
+  port: 6006
 spring:
+  application:
+    name: tx-distributed-patterns
+  main:
+    web-application-type: servlet
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/a_share_quant?useUnicode=true&characterEncoding=UTF-8&serverTimeZone=UTC
+    url: jdbc:mysql://localhost:3306/transaction_study?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: Q836184425
-    initialSize: 0
-    minIdle: 5
-    maxActive: 20
-    maxWait: 60000
-    timeBetweenEvictionRunsMillis: 60000
-    minEvictableIdleTimeMillis: 300000
-    validationQuery: SELECT 1
-    testWhileIdle: true
-    testOnBorrow: false
-    testOnReturn: false
-    poolPreparedStatements: true
-    maxPoolPreparedStatementPerConnectionSize: 20
-    filters: stat,wall
-    filter:
-      stat:
-        log-slow-sql: true
-  data:
-    redis:
-      host: 127.0.0.1
-      port: 6379
-      password: Q836184425
-      timeout: 2000ms
-      lettuce:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 60000
+      idle-timeout: 300000
+      pool-name: transaction-insight-pool
+      connection-test-query: SELECT 1
   kafka:
     bootstrap-servers: 192.168.254.2:9092,192.168.254.3:9092,192.168.254.4:9092
     producer:
@@ -38,62 +24,10 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
       retries: 2147483647
-      enable-idempotence: true
-      max-in-flight-requests-per-connection: 5
-      linger-ms: 5
+      compression-type: snappy
       batch-size: 32768
       buffer-memory: 67108864
-      compression-type: snappy
-project:
-  path: /datacollector/logs
-xxl:
-  job:
-    admin:
-      addresses: http://127.0.0.1:8802/xxl-job-3.1.0
-    executor:
-      appname: data-collector
-      ip: 127.0.0.1
-      port: 8901
-      logpath: ${project.path}
-      logretentiondays: 30
-    accessToken: default_token
-knife4j:
-  enable: true
-  setting:
-    language: zh_cn
-    enable-version: true
-    enable-reload-cache-parameter: true
-    enable-after-script: true
-    enable-filter-multipart-api-method-type: POST
-    enable-filter-multipart-apis: false
-    enable-request-cache: true
-    enable-host: false
-    enable-host-text: ""
-    enable-home-custom: true
-    home-custom-path: classpath:markdown/home.md
-    enable-search: true
-    enable-footer: false
-    enable-footer-custom: true
-    footer-custom-content: Apache License 2.0 | Copyright  2024-[量化交易开发团队](https://github.com/your-org)
-    enable-dynamic-parameter: true
-    enable-debug: true
-    enable-open-api: false
-    enable-group: true
-  cors: true
-  production: false
-springdoc:
-  api-docs:
-    enabled: true
-    path: /v3/api-docs
-  swagger-ui:
-    enabled: true
-    path: /swagger-ui.html
-    tags-sorter: alpha
-    operations-sorter: alpha
-  show-actuator: true
-logging:
-  level:
-    cn.com.wind.wstock.datashareservice.dal.dao.intelligent: debug
-data-collector:
-  timeout: 10min
-
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        linger.ms: 5

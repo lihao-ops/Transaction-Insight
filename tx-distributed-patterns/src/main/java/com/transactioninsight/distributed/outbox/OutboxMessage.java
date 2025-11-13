@@ -12,7 +12,17 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Outbox 模式中的消息实体，负责持久化事务内产生的事件，供异步投递组件读取。
+ * 类说明 / Class Description:
+ * 中文：Outbox 模式消息实体，持久化事务内产生的事件，供异步组件读取与投递。
+ * English: Outbox pattern message entity persisting in-transaction events for async reading and dispatching.
+ *
+ * 使用场景 / Use Cases:
+ * 中文：与主事务同库写入消息，保证事件与业务数据的原子性。
+ * English: Write messages in the same DB as main transaction to guarantee atomicity of events and business data.
+ *
+ * 设计目的 / Design Purpose:
+ * 中文：以最小字段集表达可投递事件，支持定时扫描与重试。
+ * English: Minimal field set to express dispatchable events, supporting scheduled scans and retries.
  */
 @Entity
 @Table(name = "outbox_message")
@@ -48,14 +58,33 @@ public class OutboxMessage {
     @Column(nullable = false)
     private Instant updatedAt = Instant.now();
 
-    /** JPA 默认构造函数。 */
+    /**
+     * 方法说明 / Method Description:
+     * 中文：JPA 默认构造函数，供框架使用。
+     * English: Default JPA constructor for framework usage.
+     *
+     * 参数 / Parameters: 无
+     * 返回值 / Return: 无
+     * 异常 / Exceptions: 无
+     */
     protected OutboxMessage() {
     }
 
     /**
-     * @param aggregateId 聚合根标识
-     * @param eventType   事件类型
-     * @param payload     JSON 序列化后的载荷
+     * 方法说明 / Method Description:
+     * 中文：构造消息实体，写入聚合根、事件类型与载荷。
+     * English: Construct message entity with aggregate ID, event type, and payload.
+     *
+     * 参数 / Parameters:
+     * @param aggregateId 中文：聚合根标识 / English: Aggregate root identifier
+     * @param eventType   中文：事件类型 / English: Event type
+     * @param payload     中文：JSON 序列化载荷 / English: JSON serialized payload
+     *
+     * 返回值 / Return:
+     * 中文：实体实例 / English: Entity instance
+     *
+     * 异常 / Exceptions:
+     * 中文/英文：无
      */
     public OutboxMessage(String aggregateId, String eventType, String payload) {
         this.aggregateId = aggregateId;
@@ -98,13 +127,29 @@ public class OutboxMessage {
         return status;
     }
 
-    /** 将消息标记为已发送，同时刷新更新时间。 */
+    /**
+     * 方法说明 / Method Description:
+     * 中文：标记消息为已发送，并刷新更新时间。
+     * English: Mark message as SENT and refresh update timestamp.
+     *
+     * 参数 / Parameters: 无
+     * 返回值 / Return: 无
+     * 异常 / Exceptions: 无
+     */
     public void markSent() {
         this.status = OutboxStatus.SENT;
         this.updatedAt = Instant.now();
     }
 
-    /** 将消息标记为发送失败，便于后续重试。 */
+    /**
+     * 方法说明 / Method Description:
+     * 中文：标记消息为发送失败，便于后续重试。
+     * English: Mark message as FAILED for subsequent retries.
+     *
+     * 参数 / Parameters: 无
+     * 返回值 / Return: 无
+     * 异常 / Exceptions: 无
+     */
     public void markFailed() {
         this.status = OutboxStatus.FAILED;
         this.updatedAt = Instant.now();

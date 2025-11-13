@@ -3,6 +3,7 @@ package com.transactioninsight.common.config;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -12,54 +13,104 @@ import org.springframework.context.annotation.Primary;
 import javax.sql.DataSource;
 
 /**
- * <p>
- * Centralised datasource configuration shared by every module in the multi-module Maven build.
- * The configuration intentionally keeps the settings environment agnostic so the same
- * {@link javax.sql.DataSource} can be reused by command-line demos, integration tests and IDE
- * driven experiments.
- * </p>
+ * 类说明 / Class Description:
+ * 中文：集中式数据源配置，统一读取 spring.datasource.* 并构建 HikariCP 连接池。
+ * English: Centralized DataSource configuration, reading spring.datasource.* to build a HikariCP pool.
  *
- * <p>
- * 核心思路：通过 {@link DataSourceProperties} 读取 YAML/Properties 中的连接信息，再构建出带有
- * 面试场景常见调优参数的 {@link HikariDataSource}。这样既能保持配置一致性，也便于后续在不同模块中复用。
- * </p>
+ * 使用场景 / Use Cases:
+ * 中文：为各模块提供一致的数据源初始化与池参数配置，支持事务实验与集成测试。
+ * English: Provide consistent DataSource initialization and pool params for modules supporting transaction experiments and ITs.
+ *
+ * 设计目的 / Design Purpose:
+ * 中文：降低重复配置，保障池参数在不同模块间一致，减少运行时隐患。
+ * English: Reduce duplicated configuration and ensure consistent pool params across modules to minimize runtime risks.
+ *
+ * 涉及的核心组件说明 / Core Components:
+ * 中文：DataSourceProperties、HikariConfig/HikariDataSource、条件化装配。
+ * English: DataSourceProperties, HikariConfig/HikariDataSource, conditional wiring.
  */
 @Configuration
 public class DataSourceConfig {
 
     /**
-     * 读取 spring.datasource.* 配置并封装成 {@link DataSourceProperties}。
+     * 方法说明 / Method Description:
+     * 中文：绑定 spring.datasource.* 到 DataSourceProperties，承载 JDBC 基本信息。
+     * English: Bind spring.datasource.* to DataSourceProperties, carrying core JDBC info.
      *
-     * @return 提供 JDBC 连接元信息的配置对象
+     * 参数 / Parameters:
+     * 无
+     *
+     * 返回值 / Return:
+     * 中文说明：包含 URL、用户名、密码、驱动名的属性对象
+     * English description: Property object containing URL, username, password, driver name
+     *
+     * 异常 / Exceptions:
+     * 中文/英文：无（属性绑定失败时由 Spring 在启动期校验报错）
      */
     @Bean
     @ConfigurationProperties("spring.datasource")
     @Primary
     public DataSourceProperties dataSourceProperties() {
+        // 中文：创建并返回 DataSourceProperties，供后续 Hikari 配置引用
+        // English: Create and return DataSourceProperties for later Hikari configuration
         return new DataSourceProperties();
     }
 
     /**
-     * 创建一个带有常用池化参数的 {@link DataSource}，供业务代码和测试复用。
+     * 方法说明 / Method Description:
+     * 中文：绑定 spring.datasource.hikari.* 到 HikariConfig，用于配置连接池参数。
+     * English: Bind spring.datasource.hikari.* to HikariConfig for connection pool parameters.
      *
-     * @param properties 上面方法构建的属性对象，包含 JDBC URL、账号等
-     * @return 线程安全、支持连接池的 {@link HikariDataSource}
+     * 参数 / Parameters:
+     * 无
+     *
+     * 返回值 / Return:
+     * 中文说明：Hikari 连接池配置对象
+     * English description: Hikari connection pool configuration object
+     *
+     * 异常 / Exceptions:
+     * 中文/英文：无
+     */
+    @Bean
+    @ConfigurationProperties("spring.datasource.hikari")
+    public HikariConfig hikariConfig() {
+        // 中文：创建 HikariConfig，参数由外部配置文件注入
+        // English: Create HikariConfig with parameters injected from external configs
+        return new HikariConfig();
+    }
+
+    /**
+     * 方法说明 / Method Description:
+     * 中文：根据属性动态构建 HikariDataSource，并启用连接池。
+     * English: Dynamically build HikariDataSource from properties and enable the connection pool.
+     *
+     * 参数 / Parameters:
+     * @param properties 中文说明：数据源基本属性（URL、用户名、密码、驱动）
+     *                   English description: Base DataSource properties (URL, username, password, driver)
+     * @param hikari     中文说明：连接池参数（最大/最小连接、超时等）
+     *                   English description: Pool parameters (max/min connections, timeouts)
+     *
+     * 返回值 / Return:
+     * 中文说明：已配置完成并可用的 DataSource
+     * English description: A fully configured, ready-to-use DataSource
+     *
+     * 异常 / Exceptions:
+     * 中文/英文：当 URL/凭据为空或驱动不存在时，可能抛出运行时异常
      */
     @Bean
     @ConditionalOnMissingBean
     @Primary
-    public DataSource dataSource(DataSourceProperties properties) {
-        // 核心配置：显式设置池大小与超时时间，确保在压力测试或并发实验中保持稳定。
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(properties.getUrl());
-        config.setUsername(properties.getUsername());
-        config.setPassword(properties.getPassword());
-        config.setDriverClassName(properties.getDriverClassName());
-        config.setMaximumPoolSize(20);
-        config.setMinimumIdle(5);
-        config.setConnectionTimeout(60_000);
-        config.setIdleTimeout(300_000);
-        config.setPoolName("transaction-insight-pool");
-        return new HikariDataSource(config);
+    @ConditionalOnProperty(prefix = "spring.datasource", name = "url")
+    public DataSource dataSource(DataSourceProperties properties, HikariConfig hikari) {
+        // 中文：应用 JDBC 基本参数到连接池配置
+        // English: Apply base JDBC parameters to the pool configuration
+        hikari.setJdbcUrl(properties.getUrl());
+        hikari.setUsername(properties.getUsername());
+        hikari.setPassword(properties.getPassword());
+        hikari.setDriverClassName(properties.getDriverClassName());
+
+        // 中文：返回连接池数据源实例
+        // English: Return pooled DataSource instance
+        return new HikariDataSource(hikari);
     }
 }

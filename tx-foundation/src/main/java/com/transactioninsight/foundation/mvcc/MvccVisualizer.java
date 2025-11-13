@@ -14,10 +14,17 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * <p>
- * MVCC 可视化服务：在 REPEATABLE_READ 隔离级别下，演示同一个事务对同一条记录的两次读取
- * 返回一致快照的行为。该服务是基础模块中最核心的教学示例之一。
- * </p>
+ * 类说明 / Class Description:
+ * 中文：MVCC 可视化服务，在可重复读隔离级别下演示同一事务的快照一致性行为。
+ * English: MVCC visualization service demonstrating snapshot consistency under REPEATABLE_READ.
+ *
+ * 使用场景 / Use Cases:
+ * 中文：教学展示事务内两次读取的视图一致性，对比 flush/clear 后与数据库最新值。
+ * English: Educational demo for in-transaction read view consistency versus latest DB values after flush/clear.
+ *
+ * 设计目的 / Design Purpose:
+ * 中文：以最小示例揭示 MVCC 的核心机制（快照、可见性）。
+ * English: Reveal MVCC core mechanisms (snapshot, visibility) via minimal examples.
  */
 @Service
 public class MvccVisualizer {
@@ -30,40 +37,83 @@ public class MvccVisualizer {
     private EntityManager entityManager;
 
     /**
-     * @param accountRepository JPA 仓储，用于加载账户快照
+     * 方法说明 / Method Description:
+     * 中文：构造可视化服务并注入账户仓储。
+     * English: Construct visualization service with injected account repository.
+     *
+     * 参数 / Parameters:
+     * @param accountRepository 中文说明：用于查询账户视图的仓储
+     *                         English description: Repository used to query account views
+     *
+     * 返回值 / Return:
+     * 中文说明：服务实例
+     * English description: Service instance
+     *
+     * 异常 / Exceptions:
+     * 中文/英文：无
      */
     public MvccVisualizer(AccountRepository accountRepository) {
         this.accountRepository = accountRepository;
     }
 
     /**
-     * 在可重复读隔离级别下查询账户，并返回事务内视图。
+     * 方法说明 / Method Description:
+     * 中文：在 REPEATABLE_READ 下查询账户两次，返回事务内快照视图。
+     * English: Query the account twice under REPEATABLE_READ and return the in-transaction snapshot view.
      *
-     * @param accountId 需要演示的账户 ID
-     * @return 快照结果，包含可见余额与可视化事件
+     * 参数 / Parameters:
+     * @param accountId 中文说明：待演示的账户 ID
+     *                  English description: Account ID for demonstration
+     *
+     * 返回值 / Return:
+     * 中文说明：包含余额与事件的快照结果
+     * English description: Snapshot result containing balance and events
+     *
+     * 异常 / Exceptions:
+     * 中文/英文：账户不存在时抛 IllegalArgumentException
+     *
+     * 逻辑概述 / Logic Overview:
+     * 中文：先读取基线视图，flush/clear 强制下一次读取走数据库，再比较事务视图与最新数据。
+     * English: Read baseline view, then flush/clear to force next read from DB, comparing view with latest data.
      */
     @Transactional(isolation = Isolation.REPEATABLE_READ)
     public SnapshotResult demonstrateMvcc(Long accountId) {
+        // 中文：加载事务内第一次读取的账户视图
+        // English: Load the first in-transaction account read view
         Account baseline = accountRepository.findById(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
+        // 中文：记录可视化日志以便教学演示
+        // English: Log visualization details for educational demo
         log.debug("Read view captured for account {} with balance {}", accountId, baseline.getBalance());
 
-        // 核心步骤：通过 flush + clear 强制 JPA 再次从数据库加载数据，以此对比事务视图与最新数据。
+        // 中文：通过 flush + clear 强制下一次读取命中数据库而非一级缓存
+        // English: Force next read to hit the database instead of first-level cache via flush + clear
         entityManager.flush();
         entityManager.clear();
 
+        // 中文：第二次读取，用于对比快照一致性
+        // English: Second read for snapshot consistency comparison
         Account snapshot = accountRepository.findById(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
+        // 中文：返回快照结果与事件说明
+        // English: Return snapshot result with event annotation
         return new SnapshotResult(snapshot.getBalance(), List.of("Initial ReadView captured"));
     }
 
     /**
-     * 记录快照信息的简单值对象。
+     * 类说明 / Class Description:
+     * 中文：快照结果值对象，记录余额与事件说明。
+     * English: Snapshot result value object recording balance and event annotations.
      *
-     * @param balance 此次演示得到的余额
-     * @param events  快照过程中的关键事件描述
+     * 使用场景 / Use Cases:
+     * 中文：在 MVCC 演示中向调用方返回事务内视图信息。
+     * English: Return in-transaction view details to callers during MVCC demonstration.
+     *
+     * 设计目的 / Design Purpose:
+     * 中文：用最简单的数据结构承载可视化信息，便于日志与断言。
+     * English: Minimal data structure to carry visualization info for logging and assertions.
      */
     public record SnapshotResult(BigDecimal balance, List<String> events) {
     }

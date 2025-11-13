@@ -20,23 +20,24 @@ import java.sql.SQLException;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * <p>
- * 测试目标：验证 MySQL 在 READ_UNCOMMITTED 隔离级别下会出现脏读现象，并给出实际 SQL 操作。
- * 使用 H2 以 MySQL 模式运行，避免对 Docker 或外部数据库的依赖，同时保留相同的隔离级别行为。
- * </p>
- * <p>
- * 事务知识点：隔离性（Isolation）中的脏读（Dirty Read），通过对比提交前后的余额演示读写冲突。
- * </p>
- * <p>
- * 预期现象：读事务能读取到未提交的余额 1000，回滚后再次读取为 500；实际运行结果与预期一致。
- * </p>
+ * 测试目的 / Test Purpose:
+ * 中文：验证 READ_UNCOMMITTED 隔离级别下的脏读现象，并通过回滚恢复最终一致性。
+ * English: Validate dirty read under READ_UNCOMMITTED and restore eventual consistency via rollback.
+ *
+ * 预期结果 / Expected Result:
+ * 中文：未提交写事务的值可被读事务读取；回滚后读事务再次读取为先前值。
+ * English: Value from uncommitted write is readable; after rollback, subsequent read returns original value.
+ *
+ * 执行方式 / How to Execute:
+ * 中文：直接运行单测，使用 H2（MySQL 模式）作为内存数据库，无需外部依赖。
+ * English: Run the test; uses H2 (MySQL mode) in-memory DB, no external dependencies required.
  */
 @SpringBootTest
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:tx_foundation;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
-        "spring.datasource.username=sa",
-        "spring.datasource.password=",
+        "spring.datasource.username=root",
+        "spring.datasource.password=Q836184425",
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect"
@@ -66,6 +67,23 @@ class MySqlIsolationIntegrationTest {
     @Test
     @DisplayName("READ UNCOMMITTED allows dirty read")
     void dirtyReadOccursUnderReadUncommitted() throws Exception {
+        /**
+         * 方法说明 / Method Description:
+         * 中文：验证两个 READ_UNCOMMITTED 事务内的脏读与回滚后读到原值的行为。
+         * English: Validate dirty read within two READ_UNCOMMITTED transactions and reading original value after rollback.
+         *
+         * 测试目标 / What is tested:
+         * 中文：同一记录在未提交更新后的可读性与回滚后的一致性。
+         * English: Readability of uncommitted update and consistency after rollback for the same record.
+         *
+         * 输入/输出 / Input/Output:
+         * 中文：输入为账户 ID；输出为两次读取的余额（1000 与 500）。
+         * English: Input is account ID; output is two balances (1000 and 500).
+         *
+         * 预期结果 / Expected:
+         * 中文：第一次读取到 1000（脏读），回滚后读取到 500（原值）。
+         * English: First read 1000 (dirty read), after rollback read 500 (original).
+         */
         try (Connection writer = dataSource.getConnection();
              Connection reader = dataSource.getConnection()) {
             writer.setAutoCommit(false);
