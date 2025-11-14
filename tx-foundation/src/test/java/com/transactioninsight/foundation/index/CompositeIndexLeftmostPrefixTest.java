@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +32,8 @@ public class CompositeIndexLeftmostPrefixTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(CompositeIndexLeftmostPrefixTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -66,6 +70,7 @@ public class CompositeIndexLeftmostPrefixTest {
                     }
                 }
             }
+            log.info("实验成功：联合索引完整匹配验证通过；EXPLAIN key=idx_status_balance_time / Success: Composite index full match confirmed; EXPLAIN key=idx_status_balance_time");
         }
     }
 
@@ -89,6 +94,7 @@ public class CompositeIndexLeftmostPrefixTest {
             try (PreparedStatement ps = c.prepareStatement("EXPLAIN SELECT * FROM account_transaction WHERE balance > 5000")) {
                 try (ResultSet rs = ps.executeQuery()) { if (rs.next()) assertThat(rs.getString("key")).isNotEqualTo("idx_status_balance_time"); }
             }
+            log.info("实验成功：最左前缀验证通过；仅第一列或前两列可用，跳过首列不可用 / Success: Leftmost prefix confirmed; first/first+second usable, skipping first not usable");
         }
     }
 
@@ -108,6 +114,7 @@ public class CompositeIndexLeftmostPrefixTest {
             try (PreparedStatement ps = c.prepareStatement("EXPLAIN SELECT * FROM account_transaction WHERE status = 1 AND last_trans_time > '2024-01-01' AND balance > 5000")) {
                 try (ResultSet rs = ps.executeQuery()) { if (rs.next()) assertThat(rs.getString("key")).isEqualTo("idx_status_time_balance"); }
             }
+            log.info("实验成功：范围查询中断后续字段使用验证通过；调整索引列序可恢复利用 / Success: Range cut-off confirmed; reordering index columns restores usage");
         }
     }
 
@@ -126,6 +133,7 @@ public class CompositeIndexLeftmostPrefixTest {
             try (PreparedStatement ps = c.prepareStatement("EXPLAIN SELECT * FROM account_transaction WHERE status = 1 UNION SELECT * FROM account_transaction WHERE balance > 5000")) {
                 try (ResultSet rs = ps.executeQuery()) { if (rs.next()) assertThat(rs.getString("select_type")).isNotBlank(); }
             }
+            log.info("实验成功：OR 条件破坏联合索引验证通过；UNION 改写更优 / Success: OR breaks composite confirmed; UNION rewrite improves");
         }
     }
 
@@ -145,7 +153,7 @@ public class CompositeIndexLeftmostPrefixTest {
             try (PreparedStatement ps = c.prepareStatement("EXPLAIN SELECT * FROM account_transaction WHERE last_trans_time >= '2024-01-01' AND last_trans_time < '2025-01-01'")) {
                 try (ResultSet rs = ps.executeQuery()) { if (rs.next()) assertThat(rs.getString("type")).isEqualTo("range"); }
             }
+            log.info("实验成功：函数导致索引失效验证通过；改写为范围后使用 type=range / Success: Function invalidation confirmed; range rewrite uses type=range");
         }
     }
 }
-

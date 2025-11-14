@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +32,8 @@ public class PaginationOptimizationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(PaginationOptimizationTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -80,6 +84,7 @@ public class PaginationOptimizationTest {
             // English: Assert improvements (demo-level): subquery/cursor not slower than traditional deep LIMIT
             assertThat(tSub).isLessThanOrEqualTo(tLimit);
             assertThat(tCursor).isLessThanOrEqualTo(tLimit);
+            log.info("实验成功：深度分页优化验证通过；子查询/游标分页不慢于传统 LIMIT 深度分页 / Success: Deep pagination optimization confirmed; subquery/cursor not slower than deep LIMIT");
         }
     }
 
@@ -99,4 +104,3 @@ public class PaginationOptimizationTest {
         try (PreparedStatement ps = c.prepareStatement(sql)) { try (ResultSet rs = ps.executeQuery()) { rs.next(); return rs.getLong(1);} }
     }
 }
-

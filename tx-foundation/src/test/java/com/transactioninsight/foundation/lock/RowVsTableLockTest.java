@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +33,8 @@ public class RowVsTableLockTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(RowVsTableLockTest.class);
 
     private void resetSchema() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -98,6 +102,7 @@ public class RowVsTableLockTest {
 
             a.rollback();
             b.rollback();
+            log.info("实验成功：主键等值行锁验证通过；同一行更新阻塞并超时 / Success: PK row lock confirmed; same-row update blocked and timed out");
         }
     }
 
@@ -136,6 +141,7 @@ public class RowVsTableLockTest {
             // 中文：恢复索引（确保后续实验不受影响）
             // English: Restore index for subsequent experiments
             try (Connection c = dataSource.getConnection()) { c.createStatement().execute("ALTER TABLE account_transaction ADD INDEX idx_user_id(user_id)"); }
+            log.info("实验成功：无索引导致表锁验证通过；删除索引后 FOR UPDATE 触发表锁、任意更新阻塞 / Success: Table lock without index confirmed; FOR UPDATE triggers table lock, arbitrary update blocked");
         }
     }
 
@@ -171,7 +177,7 @@ public class RowVsTableLockTest {
                 }
             }
             a.rollback();
+            log.info("实验成功：隐式类型转换导致索引失效验证通过；EXPLAIN 显示全表扫描 / Success: Index invalidation by implicit cast confirmed; EXPLAIN shows full scan");
         }
     }
 }
-

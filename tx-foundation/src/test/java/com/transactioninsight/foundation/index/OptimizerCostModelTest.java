@@ -11,6 +11,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,6 +34,8 @@ public class OptimizerCostModelTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(OptimizerCostModelTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -77,7 +81,7 @@ public class OptimizerCostModelTest {
                 try (ResultSet rs = ps.executeQuery()) { if (rs.next()) assertThat(rs.getString(1)).contains("considered_execution_plans"); }
             }
             c.createStatement().executeUpdate("SET optimizer_trace='enabled=off' ");
+            log.info("实验成功：优化器成本模型分析验证通过；EXPLAIN JSON 包含 cost_info，optimizer_trace 列出候选计划与成本 / Success: Optimizer cost model confirmed; EXPLAIN JSON has cost_info, optimizer_trace lists considered plans and costs");
         }
     }
 }
-

@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -37,6 +39,8 @@ public class SeckillStrategiesTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(SeckillStrategiesTest.class);
 
     /**
      * 方法说明 / Method Description:
@@ -152,6 +156,7 @@ public class SeckillStrategiesTest {
             assertThat(orders + stock).isEqualTo(initialStock);
             assertThat(stock).isGreaterThanOrEqualTo(0);
             assertThat(orders).isLessThanOrEqualTo(initialStock);
+            log.info("实验成功：悲观锁秒杀不变量成立；订单数+库存=初始库存，未发生超卖 / Success: Pessimistic seckill invariant holds; orders+stock=initial, no oversell");
         }
     }
 
@@ -201,6 +206,7 @@ public class SeckillStrategiesTest {
             assertThat(orders + stock).isEqualTo(initialStock);
             assertThat(stock).isGreaterThanOrEqualTo(0);
             assertThat(orders).isLessThanOrEqualTo(initialStock);
+            log.info("实验成功：乐观锁秒杀不变量成立；无超卖，可能存在 SOLD_OUT/RETRY_EXCEEDED / Success: Optimistic seckill invariant holds; no oversell, possible SOLD_OUT/RETRY_EXCEEDED");
         }
     }
 
@@ -215,4 +221,3 @@ public class SeckillStrategiesTest {
         try (PreparedStatement ps = c.prepareStatement(sql)) { try (ResultSet rs = ps.executeQuery()) { rs.next(); return rs.getInt(1);} }
     }
 }
-

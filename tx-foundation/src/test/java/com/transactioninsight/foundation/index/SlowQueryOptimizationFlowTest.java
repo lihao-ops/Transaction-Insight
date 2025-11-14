@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +32,8 @@ public class SlowQueryOptimizationFlowTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(SlowQueryOptimizationFlowTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -93,6 +97,7 @@ public class SlowQueryOptimizationFlowTest {
             long slow = bestTime(c, "SELECT * FROM account_transaction WHERE remark LIKE '%test%'", 3);
             long fast = bestTime(c, "SELECT * FROM account_transaction WHERE MATCH(remark) AGAINST('test' IN NATURAL LANGUAGE MODE)", 3);
             assertThat(fast).isLessThanOrEqualTo(slow);
+            log.info("实验成功：慢查询优化验证通过；FULLTEXT 与改写方案较 LIKE 全表扫描更快 / Success: Slow query optimization confirmed; FULLTEXT and rewrites faster than LIKE full scan");
         }
     }
 
@@ -108,4 +113,3 @@ public class SlowQueryOptimizationFlowTest {
         return best == Long.MAX_VALUE ? 0 : best;
     }
 }
-

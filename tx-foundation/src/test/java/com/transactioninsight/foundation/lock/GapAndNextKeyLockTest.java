@@ -8,6 +8,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -29,6 +31,8 @@ public class GapAndNextKeyLockTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(GapAndNextKeyLockTest.class);
 
     private void seedBalances() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -92,6 +96,7 @@ public class GapAndNextKeyLockTest {
 
             a.rollback();
             b.rollback();
+            log.info("实验成功：唯一等值记录与不存在记录的锁行为验证通过；Record Lock 不阻塞相邻插入，Gap Lock 阻止插入 / Success: Unique equality vs non-exist locking confirmed; Record lock no-gap, Gap lock blocks insert");
         }
     }
 
@@ -127,6 +132,7 @@ public class GapAndNextKeyLockTest {
 
             a.rollback();
             b.rollback();
+            log.info("实验成功：非唯一索引范围 Next-Key Lock 验证通过；范围外插入成功、范围内插入阻塞超时 / Success: Next-Key Lock confirmed; outside insert ok, inside insert blocked and timed out");
         }
     }
 
@@ -163,7 +169,7 @@ public class GapAndNextKeyLockTest {
             a.rollback();
             b.rollback();
             c.rollback();
+            log.info("实验成功：间隙锁不互斥但阻塞 INSERT 验证通过 / Success: Gap locks non-mutual yet block INSERT confirmed");
         }
     }
 }
-

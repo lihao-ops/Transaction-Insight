@@ -10,6 +10,8 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +33,8 @@ class OptimisticLockCasTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(OptimisticLockCasTest.class);
 
     @Test
     @DisplayName("Experiment 5: Optimistic Lock CAS update with version")
@@ -78,6 +82,7 @@ class OptimisticLockCasTest {
             }
             assertThat(finalVB.balance).isEqualByComparingTo("400.00");
             assertThat(finalVB.version).isEqualTo(1);
+            log.info("实验成功：乐观锁（CAS）并发控制验证通过；先提交提升版本，旧版本更新影响行数为0 / Success: Optimistic CAS confirmed; first commit bumps version, stale version update rows=0");
         }
     }
 
@@ -146,4 +151,3 @@ class OptimisticLockCasTest {
      */
     private record VersionBalance(BigDecimal balance, int version) {}
 }
-

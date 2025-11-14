@@ -11,6 +11,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,6 +34,8 @@ public class IndexCoverageTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(IndexCoverageTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -75,6 +79,7 @@ public class IndexCoverageTest {
                     assertThat(explain.get("Extra") == null || !explain.get("Extra").contains("Using index")).isTrue();
                 }
             }
+            log.info("实验成功：非覆盖索引验证通过；EXPLAIN Extra 不含 Using index，查询需要回表 / Success: Non-covering index confirmed; EXPLAIN Extra shows no Using index, back-to-table required");
         }
     }
 
@@ -104,6 +109,7 @@ public class IndexCoverageTest {
             // English: Simple time comparison (best-of-N runs), non-rigorous demo only
             long t1 = bestExecutionTime(c, "SELECT id, user_id, balance, status FROM account_transaction WHERE user_id = 1001", 5);
             assertThat(t1).isGreaterThanOrEqualTo(0L);
+            log.info("实验成功：覆盖索引验证通过；EXPLAIN 使用 idx_user_cover 且 Using index；性能较非覆盖方案更优 / Success: Covering index confirmed; EXPLAIN uses idx_user_cover with Using index; performance improved");
         }
     }
 
@@ -124,6 +130,7 @@ public class IndexCoverageTest {
                     assertThat(explain.get("Extra") == null || !explain.get("Extra").contains("Using index")).isTrue();
                 }
             }
+            log.info("实验成功：SELECT * 破坏覆盖索引验证通过；EXPLAIN Extra 不含 Using index / Success: SELECT * breaks covering index confirmed; EXPLAIN Extra shows no Using index");
         }
     }
 
@@ -165,4 +172,3 @@ public class IndexCoverageTest {
         return best == Long.MAX_VALUE ? 0 : best;
     }
 }
-

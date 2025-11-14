@@ -10,6 +10,8 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +33,8 @@ class MvccVisibilityTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(MvccVisibilityTest.class);
 
     @Test
     @DisplayName("Experiment 4: MVCC visibility under REPEATABLE_READ")
@@ -77,6 +81,7 @@ class MvccVisibilityTest {
             assertThat(a2).isEqualByComparingTo("20000.00");
 
             sessionA.commit();
+            log.info("实验成功：MVCC 可见性验证通过；RR 下 Read View 固定，后续提交版本对事务A不可见 / Success: MVCC visibility confirmed; RR Read View fixed, later commits invisible to session A");
         }
     }
 
@@ -99,4 +104,3 @@ class MvccVisibilityTest {
         }
     }
 }
-

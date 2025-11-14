@@ -10,6 +10,8 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -26,12 +28,68 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 设计目的 / Design Purpose:
  * 中文：提供可执行、可断言的最小实验，强调失败路径与边界条件。
  * English: Provide executable, assertive minimal experiments emphasizing failure paths and boundaries.
+ *
+ * 执行前提 / Execution Prerequisites:
+ * 中文：
+ * 1) 本地 MySQL 可用，库 `transaction_study` 存在且数据源可连接；
+ * 2) 具备在该库中 `CREATE TABLE / INSERT / UPDATE / DELETE` 的权限；
+ * 3) InnoDB 引擎启用，支持会话级隔离设置（RC/RR）；
+ * 4) Spring Boot 测试以 `@SpringBootTest` 运行且数据源指向本地 MySQL；
+ * English:
+ * 1) Local MySQL reachable, schema `transaction_study` exists and datasource connects;
+ * 2) Privileges to `CREATE TABLE / INSERT / UPDATE / DELETE` in the schema;
+ * 3) InnoDB engine enabled with session-level isolation (RC/RR);
+ * 4) Spring Boot tests run via `@SpringBootTest` with datasource pointing to local MySQL.
+ *
+ * 实际执行 SQL / Executed SQL (按实验顺序) :
+ * 中文：
+ * [环境初始化]
+ * - CREATE TABLE IF NOT EXISTS account_transaction (id BIGINT PRIMARY KEY AUTO_INCREMENT, balance DECIMAL(15,2) NOT NULL, version INT NOT NULL DEFAULT 0, updated_at DATETIME NULL) ENGINE=InnoDB
+ * - DELETE FROM account_transaction
+ * - INSERT INTO account_transaction (balance, version, updated_at) VALUES (1000.00, 0, NOW()), (2000.00, 0, NOW())
+ *
+ * [原子性]
+ * - UPDATE account_transaction SET balance = ?, updated_at = NOW() WHERE id = 1   (900.00)
+ * - UPDATE account_transaction SET balance = ?, updated_at = NOW() WHERE id = 2   (NULL → 触发 NOT NULL 异常)
+ * - ROLLBACK
+ * - SELECT balance FROM account_transaction WHERE id = 1
+ * - SELECT balance FROM account_transaction WHERE id = 2
+ *
+ * [一致性]
+ * - SELECT SUM(balance) FROM account_transaction
+ * - SELECT balance FROM account_transaction WHERE id = 1
+ * - SELECT balance FROM account_transaction WHERE id = 2
+ * - UPDATE account_transaction SET balance = ?, updated_at = NOW() WHERE id = 1   (b1 - 300)
+ * - UPDATE account_transaction SET balance = ?, updated_at = NOW() WHERE id = 2   (b2 + 300)
+ * - COMMIT
+ * - SELECT SUM(balance) FROM account_transaction
+ *
+ * [隔离性（RC）]
+ * - SET SESSION transaction_isolation = 'READ-COMMITTED'  (sessionA)
+ * - SET SESSION transaction_isolation = 'READ-COMMITTED'  (sessionB)
+ * - SELECT balance FROM account_transaction WHERE id = 1   (sessionB)
+ * - UPDATE account_transaction SET balance = ?, updated_at = NOW() WHERE id = 1   (sessionB: +123.45)
+ * - SELECT balance FROM account_transaction WHERE id = 1   (sessionA: 提交前读旧值)
+ * - COMMIT   (sessionB)
+ * - SELECT balance FROM account_transaction WHERE id = 1   (sessionA: 提交后读新值)
+ * - COMMIT   (sessionA)
+ *
+ * [持久性]
+ * - SELECT balance FROM account_transaction WHERE id = 2
+ * - UPDATE account_transaction SET balance = ?, updated_at = NOW() WHERE id = 2   (+77.77)
+ * - COMMIT
+ * - SELECT balance FROM account_transaction WHERE id = 2   (重连后读取)
+ * English:
+ * See the Chinese list above; each statement mirrors the actual JDBC prepared SQL executed in tests.
  */
+
 @SpringBootTest
 public class AcidTransactionTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(AcidTransactionTest.class);
 
     /**
      * 方法说明 / Method Description:
@@ -83,8 +141,7 @@ public class AcidTransactionTest {
 
             // 中文：模拟异常（例如违反约束或主动抛出）
             // English: Simulate exception (constraint violation or manual throw)
-            assertThatThrownBy(() -> updateBalance(conn, 2L, null))
-                    .isInstanceOf(Exception.class);
+            assertThatThrownBy(() -> updateBalance(conn, 2L, null)).isInstanceOf(Exception.class);
 
             // 中文：异常后回滚事务，保证两个更新都不生效
             // English: Roll back ensuring none of updates persist
@@ -94,6 +151,7 @@ public class AcidTransactionTest {
             // English: Verify both rows keep initial values
             assertThat(readBalance(conn, 1L)).isEqualByComparingTo("1000.00");
             assertThat(readBalance(conn, 2L)).isEqualByComparingTo("2000.00");
+            log.info("实验成功：原子性验证通过；事务异常已整体回滚，未产生部分写入 / Success: Atomicity confirmed; transaction rolled back on error, no partial writes");
         }
     }
 
@@ -132,6 +190,7 @@ public class AcidTransactionTest {
             // English: Sum invariant must hold after commit
             BigDecimal sum1 = readSum(conn);
             assertThat(sum1).isEqualByComparingTo(sum0);
+            log.info("实验成功：一致性验证通过；跨行转账后总额守恒 / Success: Consistency confirmed; cross-row transfer preserved total sum");
         }
     }
 
@@ -174,6 +233,7 @@ public class AcidTransactionTest {
             assertThat(aReadAfterCommit).isEqualByComparingTo(b1.add(new BigDecimal("123.45")));
 
             sessionA.commit();
+            log.info("实验成功：隔离性验证通过；未提交写入不可见，提交后 RC 可见 / Success: Isolation confirmed; uncommitted write invisible, visible after commit under RC");
         }
     }
 
@@ -205,6 +265,7 @@ public class AcidTransactionTest {
         try (Connection conn2 = dataSource.getConnection()) {
             BigDecimal readBack = readBalance(conn2, 2L);
             assertThat(readBack).isEqualByComparingTo(committedValue);
+            log.info("实验成功：持久性验证通过；提交后重连读取到已提交数据 / Success: Durability confirmed; committed data persisted across reconnect");
         }
     }
 
@@ -282,4 +343,3 @@ public class AcidTransactionTest {
         }
     }
 }
-

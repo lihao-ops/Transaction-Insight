@@ -10,6 +10,8 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +33,8 @@ class DirtyReadTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(DirtyReadTest.class);
 
     /**
      * 方法说明 / Method Description:
@@ -100,6 +104,7 @@ class DirtyReadTest {
             // 中文：提交会话A
             // English: Commit session A
             sessionA.commit();
+            log.info("实验成功：READ UNCOMMITTED 脏读复现与回滚验证通过 / Success: RU dirty read reproduced and rollback confirmed");
         }
     }
 
@@ -158,4 +163,3 @@ class DirtyReadTest {
         }
     }
 }
-

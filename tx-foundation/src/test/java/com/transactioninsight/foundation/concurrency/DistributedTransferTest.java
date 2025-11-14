@@ -12,6 +12,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Types;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -33,6 +35,8 @@ public class DistributedTransferTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(DistributedTransferTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -131,6 +135,7 @@ public class DistributedTransferTest {
             BigDecimal nb2 = readBigDecimal(c, "SELECT balance FROM account_transaction WHERE id=2");
             assertThat(nb1).isEqualByComparingTo(b1.subtract(new BigDecimal("100.00")));
             assertThat(nb2).isEqualByComparingTo(b2.add(new BigDecimal("100.00")));
+            log.info("实验成功：本地事务转账验证通过；幂等与固定锁序确保原子一致 / Success: Local transaction transfer confirmed; idempotence and fixed lock order ensure atomic consistency");
         }
     }
 
@@ -175,6 +180,7 @@ public class DistributedTransferTest {
             }
             BigDecimal frozenAfterRollback = readBigDecimal(c, "SELECT frozen_amount FROM account_transaction WHERE id=1");
             assertThat(frozenAfterRollback).isEqualByComparingTo("0.00");
+            log.info("实验成功：两阶段提交流程验证通过；预备→提交/回滚路径正确，冻结金额一致更新 / Success: 2PC confirmed; prepare→commit/rollback correct, frozen updated consistently");
         }
     }
 
@@ -182,4 +188,3 @@ public class DistributedTransferTest {
         try (PreparedStatement ps = c.prepareStatement(sql)) { try (ResultSet rs = ps.executeQuery()) { rs.next(); return rs.getBigDecimal(1);} }
     }
 }
-

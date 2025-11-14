@@ -11,6 +11,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,6 +34,8 @@ public class DeadlockReproductionTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(DeadlockReproductionTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -97,6 +101,7 @@ public class DeadlockReproductionTest {
         // 中文：断言至少一个事务被回滚，另一个可能提交
         // English: Assert at least one rolled back, the other may commit
         assertThat(t2RolledBack.get() || !t1Committed.get()).isTrue();
+        log.info("实验成功：经典双事务死锁复现；至少一个事务被回滚 / Success: Classic two-transaction deadlock reproduced; at least one transaction rolled back");
     }
 
     /**
@@ -135,6 +140,7 @@ public class DeadlockReproductionTest {
 
         tA.start(); tB.start(); tA.join(); tB.join();
         assertThat(deadlocked.get()).isTrue();
+        log.info("实验成功：索引顺序不一致导致死锁复现；优化固定锁序可避免 / Success: Deadlock due to inconsistent index order reproduced; fix lock order to avoid");
     }
 
     /**
@@ -179,6 +185,6 @@ public class DeadlockReproductionTest {
 
         tA.start(); tB.start(); tA.join(); tB.join();
         assertThat(oneRolledBack.get()).isTrue();
+        log.info("实验成功：间隙锁与插入意向锁冲突导致死锁复现；至少一个事务回滚 / Success: Deadlock from gap vs insert intent reproduced; at least one rollback");
     }
 }
-

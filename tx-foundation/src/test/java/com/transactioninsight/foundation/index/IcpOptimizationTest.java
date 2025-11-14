@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +32,8 @@ public class IcpOptimizationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(IcpOptimizationTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -77,7 +81,7 @@ public class IcpOptimizationTest {
                 }
             }
             c.createStatement().executeUpdate("SET optimizer_switch='index_condition_pushdown=on'");
+            log.info("实验成功：ICP 开关对比验证通过；开启时 Using index condition，关闭时 Using where / Success: ICP on/off confirmed; on→Using index condition, off→Using where");
         }
     }
 }
-

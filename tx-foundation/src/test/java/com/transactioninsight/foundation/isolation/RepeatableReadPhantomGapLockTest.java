@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +33,8 @@ class RepeatableReadPhantomGapLockTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(RepeatableReadPhantomGapLockTest.class);
 
     @Test
     @DisplayName("Experiment 3A: Snapshot vs Current Read under REPEATABLE_READ")
@@ -76,6 +80,7 @@ class RepeatableReadPhantomGapLockTest {
             assertThat(currentCount).isGreaterThan(count1);
 
             sessionA.commit();
+            log.info("实验成功：RR 快照读与当前读行为验证通过；快照读不变、当前读可见新数据 / Success: RR snapshot vs current read confirmed; snapshot unchanged, current read sees latest");
         }
     }
 
@@ -118,6 +123,7 @@ class RepeatableReadPhantomGapLockTest {
 
             sessionA.rollback();
             sessionB.rollback();
+            log.info("实验成功：RR 间隙锁阻止插入验证通过；范围内 INSERT 阻塞并超时 / Success: RR gap lock confirmed; in-range INSERT blocked and timed out");
         }
     }
 
@@ -149,4 +155,3 @@ class RepeatableReadPhantomGapLockTest {
         }
     }
 }
-

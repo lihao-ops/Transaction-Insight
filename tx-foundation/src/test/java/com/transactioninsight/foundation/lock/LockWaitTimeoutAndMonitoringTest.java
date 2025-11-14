@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -30,6 +32,8 @@ public class LockWaitTimeoutAndMonitoringTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(LockWaitTimeoutAndMonitoringTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -66,6 +70,7 @@ public class LockWaitTimeoutAndMonitoringTest {
 
             a.rollback();
             b.rollback();
+            log.info("实验成功：锁等待超时模拟通过；短超时设置下同行更新超时 / Success: Lock wait timeout simulated; same-row update timed out under short timeout");
         }
     }
 
@@ -100,7 +105,7 @@ public class LockWaitTimeoutAndMonitoringTest {
                 }
             } catch (Exception ignored) { /* 权限不足时忽略 / ignore on privilege errors */ }
             c.rollback();
+            log.info("实验成功：锁等待监控查询执行；权限不足时已容错处理 / Success: Lock wait monitoring queries executed; tolerated insufficient privileges");
         }
     }
 }
-

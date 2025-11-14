@@ -10,6 +10,8 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +33,8 @@ class ReadCommittedNonRepeatableReadTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(ReadCommittedNonRepeatableReadTest.class);
 
     /**
      * 方法说明 / Method Description:
@@ -80,6 +84,7 @@ class ReadCommittedNonRepeatableReadTest {
             assertThat(second).isEqualByComparingTo("6000.00");
 
             sessionA.commit();
+            log.info("实验成功：READ COMMITTED 不可重复读验证通过；第二次读取看到提交后的新值 / Success: RC non-repeatable read confirmed; second read sees committed value");
         }
     }
 
@@ -105,4 +110,3 @@ class ReadCommittedNonRepeatableReadTest {
         }
     }
 }
-

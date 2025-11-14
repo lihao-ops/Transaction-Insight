@@ -2,6 +2,8 @@ package com.transactioninsight.foundation.concurrency;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -30,6 +32,8 @@ public class RealtimeAggregationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    private static final Logger log = LoggerFactory.getLogger(RealtimeAggregationTest.class);
 
     private void seed() throws Exception {
         try (Connection c = dataSource.getConnection()) {
@@ -60,8 +64,8 @@ public class RealtimeAggregationTest {
         try (Connection c = dataSource.getConnection()) {
             // 中文：直接聚合（演示耗时，不做严格断言）
             // English: Direct aggregate (demo timing, no strict assert)
-            long tAgg = bestTime(c, "SELECT branch_id, COUNT(*), SUM(balance), AVG(balance) FROM account_transaction WHERE status=1 GROUP BY branch_id", 1);
-            assertThat(tAgg).isGreaterThanOrEqualTo(0L);
+        long tAgg = bestTime(c, "SELECT branch_id, COUNT(*), SUM(balance), AVG(balance) FROM account_transaction WHERE status=1 GROUP BY branch_id", 1);
+        assertThat(tAgg).isGreaterThanOrEqualTo(0L);
 
             // 中文：创建汇总过程并刷新汇总表
             // English: Create summary procedure and refresh summary table
@@ -72,8 +76,9 @@ public class RealtimeAggregationTest {
 
             // 中文：查询汇总表（期望更快）
             // English: Query summary table (expect faster)
-            long tSummary = bestTime(c, "SELECT * FROM branch_summary", 1);
-            assertThat(tSummary).isLessThanOrEqualTo(tAgg);
+        long tSummary = bestTime(c, "SELECT * FROM branch_summary", 1);
+        assertThat(tSummary).isLessThanOrEqualTo(tAgg);
+            log.info("实验成功：定时汇总查询优于直接聚合，tAgg={}ms，tSummary={}ms", tAgg, tSummary);
 
             // 中文：抽样验证某分支的汇总正确性
             // English: Sample-check summary correctness for a branch
@@ -81,6 +86,7 @@ public class RealtimeAggregationTest {
             try (PreparedStatement ps = c.prepareStatement("SELECT account_count, total_balance FROM branch_summary WHERE branch_id=?")) {
                 ps.setInt(1, branch);
                 try (ResultSet rs = ps.executeQuery()) { if (rs.next()) { assertThat(rs.getInt(1)).isGreaterThan(0); assertThat(rs.getBigDecimal(2)).isGreaterThanOrEqualTo(new java.math.BigDecimal("0")); } }
+                log.info("实验成功：汇总表抽样校验正确，branch={}, account_count>0 且 total_balance>=0", branch);
             }
 
             // 中文：尝试创建定时事件（权限不足时忽略）
@@ -96,4 +102,3 @@ public class RealtimeAggregationTest {
         return (System.nanoTime() - start) / 1_000_000;
     }
 }
-
