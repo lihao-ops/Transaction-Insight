@@ -239,6 +239,7 @@ public class AcidTransactionTest {
 
             //------------------------------------------------------------
             // 实验一：读未提交（RU）
+            // 实现思路：sessionA读取sessionB未提交的add(50.00)，它看到了1050.00
             //------------------------------------------------------------
             log.info("【RU实验开始】读未提交验证 — 理论上允许脏读 / Start RU Isolation Test");
 
@@ -259,6 +260,10 @@ public class AcidTransactionTest {
 
             //------------------------------------------------------------
             // 实验二：读已提交（RC）
+            // 实现思路：
+            // 阶段一：sessionA读取到sessionB未提交事务前的原始值1000.00
+            // 阶段二：sessionA读取sessionB已提交事务的add(60.00)，它看到了1060.00
+            // 不可重复读成立！
             //------------------------------------------------------------
             log.info("【RC实验开始】读已提交验证 — 杜绝脏读 / Start RC Isolation Test");
 
@@ -286,9 +291,13 @@ public class AcidTransactionTest {
 
             //------------------------------------------------------------
             // 实验三：可重复读（RR）
+            // 目的：验证在 InnoDB 的 REPEATABLE-READ 隔离级别下，
+            //       同一事务内多次读取同一行数据，始终看到同一个“快照版本”。
+            // 原理：RR 下首次 SELECT 会创建一致性快照（ReadView）。
+            //       后续读取不再刷新视图，即使其他事务提交了更新，也不可见。
+            // 验证点：会话 A 在事务期间两次读取同一行 → 结果一致 → 无不可重复读。
             //------------------------------------------------------------
             log.info("【RR实验开始】可重复读验证 — 快照一致 / Start RR Isolation Test");
-
             sessionA.createStatement().execute("SET SESSION transaction_isolation = 'REPEATABLE-READ'");
             sessionB.createStatement().execute("SET SESSION transaction_isolation = 'REPEATABLE-READ'");
 
