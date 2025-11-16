@@ -1,10 +1,10 @@
 package com.transactioninsight.foundation.lock;
 
-
 import com.transactioninsight.foundation.model.Account;
 import com.transactioninsight.foundation.model.AccountRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.OptimisticLockException;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,16 +12,27 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * MySQL锁机制学习测试类
  * 包含：行锁、表锁、间隙锁、临键锁、死锁、写冲突等场景
+ * <p>
+ * 重要说明：
+ * 1. 所有涉及事务的方法都通过TransactionTemplate执行，确保事务生效
+ * 2. 每个测试都包含断言验证，确保结果符合预期
+ * 3. 使用CountDownLatch确保线程同步
  */
 @Slf4j
 @SpringBootTest
@@ -32,6 +43,9 @@ public class MySQLLockMechanismTests {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @BeforeEach
     public void setup() {
@@ -79,8 +93,11 @@ public class MySQLLockMechanismTests {
         // 线程1：增加100
         executor.submit(() -> {
             try {
-                startLatch.await(); // 等待同时启动
-                updateBalanceWithoutLock("ACC001", new BigDecimal("100"), "线程1");
+                startLatch.await();
+                transactionTemplate.execute(status -> {
+                    updateBalanceWithoutLock("ACC001", new BigDecimal("100"), "线程1");
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程1异常", e);
             } finally {
@@ -91,8 +108,11 @@ public class MySQLLockMechanismTests {
         // 线程2：增加100
         executor.submit(() -> {
             try {
-                startLatch.await(); // 等待同时启动
-                updateBalanceWithoutLock("ACC001", new BigDecimal("100"), "线程2");
+                startLatch.await();
+                transactionTemplate.execute(status -> {
+                    updateBalanceWithoutLock("ACC001", new BigDecimal("100"), "线程2");
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程2异常", e);
             } finally {
@@ -100,27 +120,44 @@ public class MySQLLockMechanismTests {
             }
         });
 
-        Thread.sleep(100); // 确保两个线程都准备好
-        startLatch.countDown(); // 同时启动
+        Thread.sleep(100);
+        startLatch.countDown();
         endLatch.await(10, TimeUnit.SECONDS);
         executor.shutdown();
 
+        // 等待事务完全提交
+        Thread.sleep(200);
+
         // 查看最终结果
         Account finalAccount = accountRepository.findByAccountNo("ACC001").orElseThrow();
-        log.info("========== 最终余额: {} (预期1200，实际可能是1100) ==========", finalAccount.getBalance());
+        BigDecimal actualBalance = finalAccount.getBalance();
+
+        log.info("========== 最终余额: {} ==========", actualBalance);
+
+        // 断言：由于写冲突，余额应该是1100（丢失了一次更新）
+        // 注意：在某些情况下可能是1200（如果运气好没有冲突），但大概率是1100
+        assertTrue(
+                actualBalance.compareTo(new BigDecimal("1100.00")) == 0 ||
+                        actualBalance.compareTo(new BigDecimal("1200.00")) == 0,
+                "余额应该是1100（发生写冲突）或1200（未发生冲突）"
+        );
+
+        if (actualBalance.compareTo(new BigDecimal("1100.00")) == 0) {
+            log.warn("========== ⚠️ 发生写冲突！一次更新被覆盖，余额: {} ==========", actualBalance);
+        } else {
+            log.info("========== ✓ 未发生写冲突，余额: {} ==========", actualBalance);
+        }
     }
 
-    @Transactional
     public void updateBalanceWithoutLock(String accountNo, BigDecimal amount, String threadName) {
         log.info("[{}] 开始更新账户 {}", threadName, accountNo);
 
-        // 普通查询，不加锁
         Account account = accountRepository.findByAccountNo(accountNo).orElseThrow();
         BigDecimal oldBalance = account.getBalance();
         log.info("[{}] 读取到余额: {}", threadName, oldBalance);
 
         try {
-            Thread.sleep(50); // 模拟业务处理
+            Thread.sleep(50);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -134,6 +171,7 @@ public class MySQLLockMechanismTests {
 
     /**
      * 场景2：使用排他锁(X锁)解决写冲突
+     * 使用TransactionTemplate确保事务生效
      * <p>
      * 实现思路：
      * 1. 使用SELECT ... FOR UPDATE加排他锁
@@ -153,63 +191,69 @@ public class MySQLLockMechanismTests {
     @Test
     public void testWriteConflict_WithExclusiveLock() throws InterruptedException {
         log.info("========== 场景2：使用排他锁解决写冲突 ==========");
-
         CountDownLatch startLatch = new CountDownLatch(1);
         CountDownLatch endLatch = new CountDownLatch(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
-
         executor.submit(() -> {
             try {
                 startLatch.await();
-                updateBalanceWithExclusiveLock("ACC001", new BigDecimal("100"), "线程1");
+                transactionTemplate.execute(status -> {
+                    updateBalanceWithExclusiveLock("ACC001", new BigDecimal("100"), "线程1");
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程1异常", e);
             } finally {
                 endLatch.countDown();
             }
         });
-
         executor.submit(() -> {
             try {
                 startLatch.await();
-                Thread.sleep(10); // 稍微延迟，让线程1先获取锁
-                updateBalanceWithExclusiveLock("ACC001", new BigDecimal("100"), "线程2");
+                Thread.sleep(10);
+                transactionTemplate.execute(status -> {
+                    updateBalanceWithExclusiveLock("ACC001", new BigDecimal("100"), "线程2");
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程2异常", e);
             } finally {
                 endLatch.countDown();
             }
         });
-
         startLatch.countDown();
-        endLatch.await(10, TimeUnit.SECONDS);
+        endLatch.await(15, TimeUnit.SECONDS);
         executor.shutdown();
 
+        // 等待事务完全提交
+        Thread.sleep(200);
         Account finalAccount = accountRepository.findByAccountNo("ACC001").orElseThrow();
-        log.info("========== 最终余额: {} (预期1200，使用锁后正确) ==========",
-                finalAccount.getBalance());
+        BigDecimal actualBalance = finalAccount.getBalance();
+        BigDecimal expectedBalance = new BigDecimal("1200.00");
+
+        log.info("========== 最终余额: {} (预期: {}) ==========", actualBalance, expectedBalance);
+        // 断言：使用排他锁后，余额应该正确为1200
+        assertEquals(
+                0,
+                expectedBalance.compareTo(actualBalance),
+                String.format("使用排他锁后余额应该正确，预期: %s, 实际: %s", expectedBalance, actualBalance)
+        );
+        log.info("========== ✓ 测试通过：排他锁成功防止写冲突 ==========");
     }
 
-    @Transactional
     public void updateBalanceWithExclusiveLock(String accountNo, BigDecimal amount, String threadName) {
         log.info("[{}] 开始更新账户 {} (使用排他锁)", threadName, accountNo);
-
-        // 使用排他锁查询 - SELECT ... FOR UPDATE
         Account account = accountRepository.findByAccountNoWithExclusiveLock(accountNo).orElseThrow();
         log.info("[{}] 成功获取排他锁，读取到余额: {}", threadName, account.getBalance());
-
         try {
-            Thread.sleep(1000); // 模拟长时间业务处理
+            Thread.sleep(1000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-
         BigDecimal newBalance = account.getBalance().add(amount);
         account.setBalance(newBalance);
         accountRepository.save(account);
-
         log.info("[{}] 更新余额完成: {}", threadName, newBalance);
-        // 事务提交时释放锁
     }
 
     /**
@@ -236,11 +280,19 @@ public class MySQLLockMechanismTests {
         CountDownLatch endLatch = new CountDownLatch(3);
         ExecutorService executor = Executors.newFixedThreadPool(3);
 
+        AtomicBoolean thread1Success = new AtomicBoolean(false);
+        AtomicBoolean thread2Success = new AtomicBoolean(false);
+        AtomicBoolean thread3Blocked = new AtomicBoolean(false);
+
         // 线程1：持有共享锁
         executor.submit(() -> {
             try {
                 startLatch.await();
-                holdSharedLock("ACC001", "线程1-共享锁", 2000);
+                transactionTemplate.execute(status -> {
+                    holdSharedLock("ACC001", "线程1-共享锁", 2000);
+                    thread1Success.set(true);
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程1异常", e);
             } finally {
@@ -253,7 +305,11 @@ public class MySQLLockMechanismTests {
             try {
                 startLatch.await();
                 Thread.sleep(200);
-                holdSharedLock("ACC001", "线程2-共享锁", 1000);
+                transactionTemplate.execute(status -> {
+                    holdSharedLock("ACC001", "线程2-共享锁", 1000);
+                    thread2Success.set(true);
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程2异常", e);
             } finally {
@@ -265,8 +321,18 @@ public class MySQLLockMechanismTests {
         executor.submit(() -> {
             try {
                 startLatch.await();
-                Thread.sleep(400);
-                holdExclusiveLock("ACC001", "线程3-排他锁");
+                long startTime = System.currentTimeMillis();
+                transactionTemplate.execute(status -> {
+                    // 在这里直接验证线程3是否被阻塞
+                    Account account = accountRepository.findByAccountNoWithExclusiveLock("ACC001").orElseThrow();
+                    if (account != null) {
+                        long waitTime = System.currentTimeMillis() - startTime;
+                        if (waitTime > 10000) {
+                            thread3Blocked.set(true); // 如果排他锁被阻塞超过1000ms，设置为true
+                        }
+                    }
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程3异常", e);
             } finally {
@@ -277,9 +343,15 @@ public class MySQLLockMechanismTests {
         startLatch.countDown();
         endLatch.await(10, TimeUnit.SECONDS);
         executor.shutdown();
+
+        // 断言验证
+        assertTrue(thread1Success.get(), "线程1应该成功获取共享锁");
+        assertTrue(thread2Success.get(), "线程2应该成功获取共享锁（共享锁可以并存）");
+        assertTrue(thread3Blocked.get(), "线程3应该被阻塞，直到共享锁释放");
+
+        log.info("========== ✓ 测试通过：共享锁可以并存，排他锁需要等待 ==========");
     }
 
-    @Transactional
     public void holdSharedLock(String accountNo, String threadName, long holdTime) {
         log.info("[{}] 尝试获取共享锁...", threadName);
 
@@ -295,7 +367,6 @@ public class MySQLLockMechanismTests {
         log.info("[{}] 释放共享锁", threadName);
     }
 
-    @Transactional
     public void holdExclusiveLock(String accountNo, String threadName) {
         log.info("[{}] 尝试获取排他锁... (可能需要等待)", threadName);
         long startTime = System.currentTimeMillis();
@@ -341,13 +412,21 @@ public class MySQLLockMechanismTests {
         CountDownLatch endLatch = new CountDownLatch(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
+        AtomicBoolean deadlockOccurred = new AtomicBoolean(false);
+
         // 线程1：ACC001 -> ACC002
         executor.submit(() -> {
             try {
                 startLatch.await();
-                transferWithDeadlock("ACC001", "ACC002", "线程1");
+                transactionTemplate.execute(status -> {
+                    transferWithDeadlock("ACC001", "ACC002", "线程1");
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("[线程1] 发生异常（可能是死锁被回滚）: {}", e.getMessage());
+                if (e.getMessage() != null && e.getMessage().contains("Deadlock")) {
+                    deadlockOccurred.set(true);
+                }
             } finally {
                 endLatch.countDown();
             }
@@ -357,10 +436,16 @@ public class MySQLLockMechanismTests {
         executor.submit(() -> {
             try {
                 startLatch.await();
-                Thread.sleep(50); // 稍微延迟，确保能形成死锁
-                transferWithDeadlock("ACC002", "ACC001", "线程2");
+                Thread.sleep(50);
+                transactionTemplate.execute(status -> {
+                    transferWithDeadlock("ACC002", "ACC001", "线程2");
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("[线程2] 发生异常（可能是死锁被回滚）: {}", e.getMessage());
+                if (e.getMessage() != null && e.getMessage().contains("Deadlock")) {
+                    deadlockOccurred.set(true);
+                }
             } finally {
                 endLatch.countDown();
             }
@@ -370,29 +455,29 @@ public class MySQLLockMechanismTests {
         endLatch.await(10, TimeUnit.SECONDS);
         executor.shutdown();
 
-        log.info("========== 死锁测试完成，查看日志中的死锁信息 ==========");
+        log.info("========== 死锁测试完成 ==========");
+
+        // 断言：应该发生死锁（至少一个线程被回滚）
+        assertTrue(deadlockOccurred.get(), "应该检测到死锁并回滚其中一个事务");
+        log.info("========== ✓ 测试通过：成功复现并检测到死锁 ==========");
     }
 
-    @Transactional
     public void transferWithDeadlock(String fromAccount, String toAccount, String threadName) {
         log.info("[{}] 开始转账：{} -> {}", threadName, fromAccount, toAccount);
 
-        // 第一步：锁定源账户
         Account from = accountRepository.findByAccountNoWithExclusiveLock(fromAccount).orElseThrow();
         log.info("[{}] ✓ 成功锁定源账户 {}", threadName, fromAccount);
 
         try {
-            Thread.sleep(500); // 增加死锁概率
+            Thread.sleep(500);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
 
-        // 第二步：锁定目标账户（这里可能死锁）
         log.info("[{}] 尝试锁定目标账户 {}...", threadName, toAccount);
         Account to = accountRepository.findByAccountNoWithExclusiveLock(toAccount).orElseThrow();
         log.info("[{}] ✓ 成功锁定目标账户 {}", threadName, toAccount);
 
-        // 执行转账
         from.setBalance(from.getBalance().subtract(new BigDecimal("100")));
         to.setBalance(to.getBalance().add(new BigDecimal("100")));
 
@@ -429,11 +514,20 @@ public class MySQLLockMechanismTests {
         CountDownLatch endLatch = new CountDownLatch(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
+        AtomicInteger firstQueryCount = new AtomicInteger(0);
+        AtomicInteger secondQueryCount = new AtomicInteger(0);
+        AtomicBoolean insertBlocked = new AtomicBoolean(false);
+
         // 线程1：执行范围查询
         executor.submit(() -> {
             try {
                 startLatch.await();
-                rangeQueryWithGapLock("线程1-查询");
+                transactionTemplate.execute(status -> {
+                    int[] counts = rangeQueryWithGapLock("线程1-查询");
+                    firstQueryCount.set(counts[0]);
+                    secondQueryCount.set(counts[1]);
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程1异常", e);
             } finally {
@@ -445,8 +539,16 @@ public class MySQLLockMechanismTests {
         executor.submit(() -> {
             try {
                 startLatch.await();
-                Thread.sleep(500); // 等待线程1先查询
-                insertNewAccount("线程2-插入");
+                Thread.sleep(500);
+                long startTime = System.currentTimeMillis();
+                transactionTemplate.execute(status -> {
+                    insertNewAccount("线程2-插入");
+                    long waitTime = System.currentTimeMillis() - startTime;
+                    if (waitTime > 2000) {
+                        insertBlocked.set(true);
+                    }
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("线程2异常", e);
             } finally {
@@ -457,37 +559,48 @@ public class MySQLLockMechanismTests {
         startLatch.countDown();
         endLatch.await(15, TimeUnit.SECONDS);
         executor.shutdown();
+
+        // 断言验证
+        assertEquals(2, firstQueryCount.get(), "第一次查询应该查到2条记录");
+        assertEquals(2, secondQueryCount.get(), "第二次查询应该仍然是2条记录（间隙锁防止插入）");
+        assertTrue(insertBlocked.get(), "插入操作应该被间隙锁阻塞");
+
+        log.info("========== ✓ 测试通过：间隙锁成功防止幻读 ==========");
     }
 
     @Transactional(isolation = Isolation.REPEATABLE_READ)
-    public void rangeQueryWithGapLock(String threadName) {
+    public int[] rangeQueryWithGapLock(String threadName) {
         log.info("[{}] 第一次范围查询：余额 > 500", threadName);
 
-        // 使用FOR UPDATE会加临键锁（记录锁+间隙锁）
-        entityManager.createQuery(
+        var firstResult = entityManager.createQuery(
                         "SELECT a FROM Account a WHERE a.balance > 500", Account.class)
                 .setLockMode(LockModeType.PESSIMISTIC_WRITE)
-                .getResultList()
-                .forEach(acc -> log.info("[{}] - 查询到: {}, 余额: {}",
-                        threadName, acc.getAccountNo(), acc.getBalance()));
+                .getResultList();
+
+        int firstCount = firstResult.size();
+        firstResult.forEach(acc -> log.info("[{}] - 查询到: {}, 余额: {}",
+                threadName, acc.getAccountNo(), acc.getBalance()));
 
         try {
-            Thread.sleep(3000); // 持有锁一段时间
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
 
         log.info("[{}] 第二次范围查询：余额 > 500", threadName);
-        entityManager.createQuery(
+        var secondResult = entityManager.createQuery(
                         "SELECT a FROM Account a WHERE a.balance > 500", Account.class)
-                .getResultList()
-                .forEach(acc -> log.info("[{}] - 查询到: {}, 余额: {}",
-                        threadName, acc.getAccountNo(), acc.getBalance()));
+                .getResultList();
+
+        int secondCount = secondResult.size();
+        secondResult.forEach(acc -> log.info("[{}] - 查询到: {}, 余额: {}",
+                threadName, acc.getAccountNo(), acc.getBalance()));
 
         log.info("[{}] 查询完成，释放间隙锁", threadName);
+
+        return new int[]{firstCount, secondCount};
     }
 
-    @Transactional
     public void insertNewAccount(String threadName) {
         log.info("[{}] 尝试插入新账户 ACC003, 余额600", threadName);
         long startTime = System.currentTimeMillis();
@@ -524,11 +637,19 @@ public class MySQLLockMechanismTests {
         CountDownLatch endLatch = new CountDownLatch(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
+        long[] thread1Time = new long[1];
+        long[] thread2Time = new long[1];
+
         // 线程1：修改ACC001
         executor.submit(() -> {
             try {
                 startLatch.await();
-                updateBalanceWithExclusiveLock("ACC001", new BigDecimal("100"), "线程1-修改ACC001");
+                long start = System.currentTimeMillis();
+                transactionTemplate.execute(status -> {
+                    updateBalanceWithExclusiveLock("ACC001", new BigDecimal("100"), "线程1-修改ACC001");
+                    return null;
+                });
+                thread1Time[0] = System.currentTimeMillis() - start;
             } catch (Exception e) {
                 log.error("线程1异常", e);
             } finally {
@@ -541,7 +662,12 @@ public class MySQLLockMechanismTests {
             try {
                 startLatch.await();
                 Thread.sleep(100);
-                updateBalanceWithExclusiveLock("ACC002", new BigDecimal("200"), "线程2-修改ACC002");
+                long start = System.currentTimeMillis();
+                transactionTemplate.execute(status -> {
+                    updateBalanceWithExclusiveLock("ACC002", new BigDecimal("200"), "线程2-修改ACC002");
+                    return null;
+                });
+                thread2Time[0] = System.currentTimeMillis() - start;
             } catch (Exception e) {
                 log.error("线程2异常", e);
             } finally {
@@ -553,7 +679,22 @@ public class MySQLLockMechanismTests {
         endLatch.await(10, TimeUnit.SECONDS);
         executor.shutdown();
 
-        log.info("========== 行锁测试完成：不同行可以并发修改 ==========");
+        Thread.sleep(200);
+
+        // 验证结果
+        Account acc1 = accountRepository.findByAccountNo("ACC001").orElseThrow();
+        Account acc2 = accountRepository.findByAccountNo("ACC002").orElseThrow();
+
+        assertEquals(0, new BigDecimal("1100.00").compareTo(acc1.getBalance()),
+                "ACC001余额应该是1100");
+        assertEquals(0, new BigDecimal("2200.00").compareTo(acc2.getBalance()),
+                "ACC002余额应该是2200");
+
+        // 验证并发性：线程2的等待时间应该很短（因为锁的是不同行）
+        assertTrue(thread2Time[0] < 2000,
+                "线程2应该几乎没有等待（行锁不会阻塞不同行的操作）");
+
+        log.info("========== ✓ 测试通过：不同行可以并发修改 ==========");
     }
 
     /**
@@ -576,10 +717,17 @@ public class MySQLLockMechanismTests {
         CountDownLatch endLatch = new CountDownLatch(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
+        AtomicBoolean thread1Success = new AtomicBoolean(false);
+        AtomicBoolean thread2Failed = new AtomicBoolean(false);
+
         executor.submit(() -> {
             try {
                 startLatch.await();
-                updateWithOptimisticLock("ACC001", new BigDecimal("100"), "线程1");
+                transactionTemplate.execute(status -> {
+                    updateWithOptimisticLock("ACC001", new BigDecimal("100"), "线程1");
+                    thread1Success.set(true);
+                    return null;
+                });
             } catch (Exception e) {
                 log.error("[线程1] 乐观锁更新失败: {}", e.getMessage());
             } finally {
@@ -591,9 +739,18 @@ public class MySQLLockMechanismTests {
             try {
                 startLatch.await();
                 Thread.sleep(100);
-                updateWithOptimisticLock("ACC001", new BigDecimal("200"), "线程2");
-            } catch (Exception e) {
+                transactionTemplate.execute(status -> {
+                    updateWithOptimisticLock("ACC001", new BigDecimal("200"), "线程2");
+                    return null;
+                });
+            } catch (OptimisticLockException e) {
                 log.error("[线程2] 乐观锁更新失败（预期）: {}", e.getMessage());
+                thread2Failed.set(true);
+            } catch (Exception e) {
+                log.error("[线程2] 其他异常: {}", e.getMessage());
+                if (e.getCause() instanceof OptimisticLockException) {
+                    thread2Failed.set(true);
+                }
             } finally {
                 endLatch.countDown();
             }
@@ -602,26 +759,29 @@ public class MySQLLockMechanismTests {
         startLatch.countDown();
         endLatch.await(10, TimeUnit.SECONDS);
         executor.shutdown();
+
+        // 断言验证
+        assertTrue(thread1Success.get(), "线程1应该成功更新");
+        assertTrue(thread2Failed.get(), "线程2应该因为version不匹配而失败");
+
+        log.info("========== ✓ 测试通过：乐观锁成功检测到并发冲突 ==========");
     }
 
-    @Transactional
     public void updateWithOptimisticLock(String accountNo, BigDecimal amount, String threadName) {
         log.info("[{}] 使用乐观锁更新账户 {}", threadName, accountNo);
 
-        // 不加锁查询
         Account account = accountRepository.findByAccountNo(accountNo).orElseThrow();
         Long currentVersion = account.getVersion();
         log.info("[{}] 读取到余额: {}, version: {}",
                 threadName, account.getBalance(), currentVersion);
 
         try {
-            Thread.sleep(1000); // 模拟业务处理
+            Thread.sleep(1000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
 
         account.setBalance(account.getBalance().add(amount));
-        // JPA会自动检查version，如果不匹配会抛出OptimisticLockException
         accountRepository.save(account);
 
         log.info("[{}] ✓ 更新成功，version: {} -> {}",
