@@ -3,9 +3,11 @@ package com.transactioninsight.foundation.model;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 
 /**
@@ -470,4 +472,17 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT a FROM Account a WHERE a.accountNo = :accountNo")
     Optional<Account> findByAccountNoWithExclusiveLock(@Param("accountNo") String accountNo);
+
+    /**
+     * 普通更新余额（无锁）
+     *
+     * 说明：
+     *  - 此方法不会显式加锁
+     *  - 只要事务外部持有共享锁（S锁），该 UPDATE 就会被阻塞或超时
+     *  - 用于测试：‘共享锁不允许写’
+     */
+    @Modifying
+    @Query("UPDATE Account a SET a.balance = :balance WHERE a.accountNo = :accountNo")
+    void updateBalance(@Param("accountNo") String accountNo,
+                       @Param("balance") BigDecimal balance);
 }

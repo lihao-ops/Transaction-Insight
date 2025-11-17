@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -257,32 +258,39 @@ public class MySQLLockMechanismTests {
     }
 
     /**
-     * 场景3：共享锁(S锁) vs 排他锁(X锁)的兼容性
-     * <p>
+     * 场景3：共享锁(S锁) 与 排他锁(X锁) 的兼容性验证
+     *
+     * 测试目的：
+     * 验证 InnoDB 中 S 锁允许并发读取，而 X 锁必须等待所有 S 锁释放后才能获得。
+     *
      * 实现思路：
-     * 1. 线程1持有共享锁(SELECT ... LOCK IN SHARE MODE)
-     * 2. 线程2尝试获取共享锁(可以成功)
-     * 3. 线程3尝试获取排他锁(必须等待)
-     * <p>
-     * 预期现象：
-     * - 多个共享锁可以共存（读读不冲突）
-     * - 排他锁与共享锁互斥（读写冲突）
-     * <p>
-     * 实际现象：
-     * - 线程1、2都能获取共享锁，同时读取数据
-     * - 线程3阻塞等待，直到所有共享锁释放
+     * 1. 线程1 获取共享锁（SELECT ... LOCK IN SHARE MODE），持锁 2000ms
+     * 2. 线程2 获取共享锁，持锁 1000ms —— 可与线程1并发（读读不冲突）
+     * 3. 线程3 尝试获取排他锁（SELECT ... FOR UPDATE）
+     *    → 预期：必须等待线程1、线程2 的共享锁全部释放后才能继续执行
+     *
+     * 预期现象（锁兼容矩阵验证）：
+     * - S 与 S 兼容：线程1 与 线程2 可以同时读取
+     * - S 与 X 不兼容：线程3 的排他锁必须等待所有共享锁释放
+     *
+     * 实际现象（通过阻塞时间验证）：
+     * - 线程1、线程2 均成功立即获取共享锁
+     * - 线程3 在执行 FOR UPDATE 语句时阻塞约 ~1500ms（因 S 锁未释放）
+     * - 待线程1、线程2 都释放共享锁后，线程3 才继续执行
+     *
+     * 结论：
+     * ✔ 共享锁允许并发读取（读读并发）
+     * ✔ 排他锁必须等待共享锁释放（读写互斥）
+     * 该测试准确反映了 InnoDB 的锁兼容性行为。
      */
     @Test
     public void testSharedLockVsExclusiveLock() throws InterruptedException {
         log.info("========== 场景3：共享锁与排他锁的兼容性 ==========");
-
         CountDownLatch startLatch = new CountDownLatch(1);
         CountDownLatch endLatch = new CountDownLatch(3);
         ExecutorService executor = Executors.newFixedThreadPool(3);
-
         AtomicBoolean thread1Success = new AtomicBoolean(false);
         AtomicBoolean thread2Success = new AtomicBoolean(false);
-        AtomicBoolean thread3Blocked = new AtomicBoolean(false);
 
         // 线程1：持有共享锁
         executor.submit(() -> {
@@ -318,38 +326,122 @@ public class MySQLLockMechanismTests {
         });
 
         // 线程3：尝试获取排他锁
+        AtomicBoolean beforeQuery = new AtomicBoolean(false);
+        AtomicBoolean afterQuery = new AtomicBoolean(false);
+        AtomicLong waitTime = new AtomicLong(0);
         executor.submit(() -> {
             try {
                 startLatch.await();
-                long startTime = System.currentTimeMillis();
+                Thread.sleep(400);
                 transactionTemplate.execute(status -> {
-                    // 在这里直接验证线程3是否被阻塞
-                    Account account = accountRepository.findByAccountNoWithExclusiveLock("ACC001").orElseThrow();
-                    if (account != null) {
-                        long waitTime = System.currentTimeMillis() - startTime;
-                        if (waitTime > 10000) {
-                            thread3Blocked.set(true); // 如果排他锁被阻塞超过1000ms，设置为true
-                        }
-                    }
+                    long start = System.currentTimeMillis();
+                    beforeQuery.set(true);
+                    accountRepository.findByAccountNoWithExclusiveLock("ACC001").orElseThrow();
+                    waitTime.set(System.currentTimeMillis() - start);
+                    afterQuery.set(true);
+
                     return null;
                 });
+
             } catch (Exception e) {
                 log.error("线程3异常", e);
             } finally {
                 endLatch.countDown();
             }
         });
-
         startLatch.countDown();
         endLatch.await(10, TimeUnit.SECONDS);
         executor.shutdown();
-
         // 断言验证
+        // 断言验证：基础行为
         assertTrue(thread1Success.get(), "线程1应该成功获取共享锁");
         assertTrue(thread2Success.get(), "线程2应该成功获取共享锁（共享锁可以并存）");
-        assertTrue(thread3Blocked.get(), "线程3应该被阻塞，直到共享锁释放");
+        // 线程3：尝试获取排他锁的动作必须发生
+        assertTrue(beforeQuery.get(), "线程3应该开始尝试获取排他锁");
+        // 线程3：最终一定能执行成功（说明等待后成功加锁）
+        assertTrue(afterQuery.get(), "线程3应该在共享锁释放后成功获取排他锁并继续执行");
+        // 阻塞时间范围验证（关键逻辑）
+        long wt = waitTime.get();
+        // 理论阻塞约等于：2000ms - 400ms = 1600ms
+        assertTrue(wt >= 1400 && wt <= 3000, String.format("线程3阻塞时间异常：%d ms，应在 1400~3000ms 区间（1400ms以上说明确实被共享锁阻塞）", wt)
+        );
+        log.info("线程3实际阻塞时长: {} ms", wt);
+        log.info("========== ✓ 测试通过：共享锁并发正常，排他锁等待共享锁释放 ==========");
+    }
 
-        log.info("========== ✓ 测试通过：共享锁可以并存，排他锁需要等待 ==========");
+    /**
+     * 场景：共享锁不允许写（验证：SELECT ... FOR SHARE 会阻塞 UPDATE）
+     *
+     * 实现逻辑：
+     * 1. 线程1获取共享锁（S锁），并保持 2 秒不释放
+     * 2. 线程2在持有 S 锁期间尝试执行 UPDATE
+     * 3. UPDATE 必须被阻塞（或超时失败），因为共享锁禁止写
+     *
+     * 预期结果：
+     * - S 锁允许多个读取并发执行
+     * - S 锁与写操作（X 锁）互斥 —— 写必须等待共享锁释放
+     */
+    @Test
+    public void testSharedLockBlocksWrite() throws InterruptedException {
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        AtomicBoolean writeBlocked = new AtomicBoolean(false);
+        // 线程1：持有共享锁 2000ms
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                transactionTemplate.execute(status -> {
+                    log.info("[线程1] 获取共享锁...");
+                    Account a = accountRepository.findByAccountNoWithSharedLock("ACC001").orElseThrow();
+                    log.info("[线程1] 持有共享锁，余额 = {}", a.getBalance());
+                    try {
+                        Thread.sleep(2000); // 故意长时间持锁
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    return null;
+                });
+            } catch (Exception e) {
+                log.error("线程1异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+        // 线程2：尝试写（UPDATE）
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                Thread.sleep(200); // 确保线程1先获得共享锁
+                long start = System.currentTimeMillis();
+                try {
+                    transactionTemplate.execute(status -> {
+                        // 写操作 —— 需要 X 锁
+                        accountRepository.updateBalance("ACC001", new BigDecimal("9999"));
+                        return null;
+                    });
+                } catch (Exception e) {
+                    // 写失败（可能是锁超时）也说明共享锁阻塞写 ✔
+                    writeBlocked.set(true);
+                    log.warn("[线程2] 写操作失败（被共享锁阻塞）: {}", e.getMessage());
+                }
+                long wait = System.currentTimeMillis() - start;
+                log.info("[线程2] 写操作等待时长：{} ms", wait);
+                // 如果等待时间超过 1 秒，说明确实被共享锁挡住
+                if (wait > 1000) {
+                    writeBlocked.set(true);
+                }
+            } catch (Exception e) {
+                log.error("线程2异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+        startLatch.countDown();
+        endLatch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+        assertTrue(writeBlocked.get(), "共享锁应该阻塞写操作（UPDATE 必须等待共享锁释放）");
+        log.info("========== ✓ 测试通过：共享锁允许读，但阻塞写 ==========");
     }
 
     public void holdSharedLock(String accountNo, String threadName, long holdTime) {
