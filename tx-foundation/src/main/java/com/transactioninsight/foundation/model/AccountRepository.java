@@ -474,15 +474,93 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     Optional<Account> findByAccountNoWithExclusiveLock(@Param("accountNo") String accountNo);
 
     /**
-     * 普通更新余额（无锁）
+     * 普通更新余额（无锁 UPDATE）
      *
-     * 说明：
-     *  - 此方法不会显式加锁
-     *  - 只要事务外部持有共享锁（S锁），该 UPDATE 就会被阻塞或超时
-     *  - 用于测试：‘共享锁不允许写’
+     * 用途：
+     *  - 专门用于测试“共享锁阻塞写”
+     *  - 该 UPDATE 不主动加锁，但执行时 MySQL 会为要更新的行自动加 X 锁
+     *
+     * MySQL 行为：
+     *  - 只要事务外已经持有 S 锁（LOCK IN SHARE MODE）
+     *    → 此 UPDATE 必须等待 S 锁释放（写写互斥、读写互斥）
      */
     @Modifying
     @Query("UPDATE Account a SET a.balance = :balance WHERE a.accountNo = :accountNo")
     void updateBalance(@Param("accountNo") String accountNo,
                        @Param("balance") BigDecimal balance);
+
+
+    /**
+     * 记录锁（Record Lock）测试专用 UPDATE
+     *
+     * 用途：
+     *  - 专为 testRecordLock() 设计，只验证“唯一索引 + 等值条件”触发 Record Lock
+     *  - 该 UPDATE 不会触发间隙锁，也不会触发 next-key lock
+     *
+     * MySQL 行为（非常重要）：
+     *  - account_no 是唯一索引（UNIQUE）
+     *  - WHERE account_no = ? 属于等值命中唯一索引
+     *  - InnoDB 只会对这一条记录加 X 锁（Record Lock）
+     *  - 不会锁定前后间隙
+     *
+     * 结论：
+     *  - 测试 ACC001 会被锁住
+     *  - 但 ACC002 不会受影响（不同记录，不冲突）
+     */
+    @Modifying
+    @Query("UPDATE Account a SET a.balance = :balance WHERE a.accountNo = :accountNo")
+    void updateBalanceForRecordLock(@Param("accountNo") String accountNo,
+                                    @Param("balance") BigDecimal balance);
+
+    /**
+     * 用于验证 next-key lock / gap lock 的 UPDATE
+     *
+     * 特点：
+     * - 使用“范围条件”，会触发 Next-Key Lock（记录锁 + 间隙锁）
+     * - 用于间隙锁 / 幻读测试，不用于记录锁测试
+     */
+    @Modifying
+    @Query("UPDATE Account a SET a.balance = :balance WHERE a.balance > :minBalance")
+    void updateBalanceForNextKey(@Param("minBalance") BigDecimal minBalance,
+                                 @Param("balance") BigDecimal balance);
+
+
+
+    /**
+     * 加表级写锁（WRITE）
+     *
+     * 说明（中文）：
+     * - 此 SQL 会对整张 account_lock 表加“表写锁（WRITE LOCK）”
+     * - WRITE 锁是独占锁：禁止其他事务对该表读 / 写 / 加任何表锁
+     * - 如果表上已经存在意向锁（IS / IX），当前 WRITE 表锁会被阻塞
+     * - 因为 InnoDB 的行锁会自动在表上添加 IS/IX，而表锁与 IX 不兼容
+     * - 用于验证：行锁（FOR UPDATE）触发 IX → 阻塞表写锁（WRITE）
+     *
+     * Notes (English):
+     * - Applies a WRITE table-level lock on table `account_lock`
+     * - WRITE lock is exclusive: blocks any other reads/writes/table-lock ops
+     * - If IS/IX locks exist (caused by row-level locking), WRITE lock is blocked
+     * - Demonstrates MySQL’s lock-compatibility matrix in testIntentLock()
+     * - Note: LOCK TABLES is **outside** InnoDB transaction system and acts on session level
+     */
+    @Modifying
+    @Query(value = "LOCK TABLES account_lock WRITE", nativeQuery = true)
+    void lockTableWrite();
+
+    /**
+     * 释放本 session 持有的所有表锁
+     *
+     * 说明（中文）：
+     * - UNLOCK TABLES 会立即释放当前会话持有的全部表锁
+     * - 表锁不依赖事务提交，因此必须显式释放
+     * - 用于测试完毕后清理环境，避免影响其他测试
+     *
+     * Notes (English):
+     * - Releases all table-level locks held by current session
+     * - Must be called explicitly — table locks do NOT release on COMMIT/ROLLBACK
+     * - Required to clean up after table-lock related tests (e.g., testIntentLock)
+     */
+    @Modifying
+    @Query(value = "UNLOCK TABLES", nativeQuery = true)
+    void unlockTables();
 }

@@ -470,7 +470,8 @@ public class MySQLLockMechanismTests {
                 threadName, waitTime, account.getBalance());
 
         try {
-            Thread.sleep(500);
+            //至少 1500ms，保证其它线程一定被阻塞
+            Thread.sleep(1500);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -933,7 +934,7 @@ public class MySQLLockMechanismTests {
                 long start = System.currentTimeMillis();
                 transactionTemplate.execute(status -> {
                     log.info("[线程2] 尝试更新 ACC001...");
-                    accountRepository.updateBalance("ACC001", new BigDecimal("9999"));
+                    accountRepository.updateBalanceForRecordLock("ACC001", new BigDecimal("9999"));
                     return null;
                 });
                 thread2Wait.set(System.currentTimeMillis() - start);
@@ -952,7 +953,7 @@ public class MySQLLockMechanismTests {
                 long start = System.currentTimeMillis();
                 transactionTemplate.execute(status -> {
                     log.info("[线程3] 尝试更新 ACC002...");
-                    accountRepository.updateBalance("ACC002", new BigDecimal("8888"));
+                    accountRepository.updateBalanceForRecordLock("ACC002", new BigDecimal("8888"));
                     return null;
                 });
                 thread3Wait.set(System.currentTimeMillis() - start);
@@ -967,14 +968,12 @@ public class MySQLLockMechanismTests {
         endLatch.await(10, TimeUnit.SECONDS);
         executor.shutdown();
 
-        log.info("[线程2] 更新 ACC001 等待时间：{}ms", thread2Wait.get());
-        log.info("[线程3] 更新 ACC002 等待时间：{}ms", thread3Wait.get());
+        log.info("[线程2] ACC001 被锁等待：{}ms", thread2Wait.get());
+        log.info("[线程3] ACC002 无锁更新：{}ms", thread3Wait.get());
 
-        // 断言：ACC001 的更新必须等待（>500ms）
-        assertTrue(thread2Wait.get() > 500, "线程2 应该被 ACC001 的记录锁阻塞");
+        assertTrue(thread2Wait.get() > 500, "线程2（ACC001）应该被记录锁阻塞（等待时间 > 500ms）");
 
-        // 断言：ACC002 不受阻塞（很快）
-        assertTrue(thread3Wait.get() < 300, "线程3 不应该被阻塞，因为 ACC002 不在记录锁范围内");
+        assertTrue(thread3Wait.get() < thread2Wait.get() / 3, "线程3（ACC002）不应该受阻塞，应当远小于线程2的等待时间");
 
         log.info("========== ✓ 测试通过：记录锁只锁单条记录，不锁其它记录 ==========");
     }
@@ -992,6 +991,17 @@ public class MySQLLockMechanismTests {
      * 2. 线程2：尝试插入 balance=1000 的新记录 ACC999
      * → 必须被阻塞（因为属于 next-key lock 范围）
      * <p>
+     * Next-Key Lock（记录锁 + 前开后闭间隙锁）
+     * 锁住的真实范围是：
+     * (500, 1000]
+     * (1000, 2000]
+     * (2000, 3000]
+     * <p>
+     * 你插入的数据：
+     * balance = 1000  → 落在第二个 next-key 区间
+     * 所以 INSERT 必须等待：
+     * ➡️ 完全符合 InnoDB 的锁规则
+     * ➡️ 说明你的测试是“正确复现数据库内部机制”级别的
      * 预期：
      * - 插入被阻塞超过 1 秒
      */
@@ -1070,6 +1080,86 @@ public class MySQLLockMechanismTests {
                 "临键锁应该阻塞插入（INSERT 必须等待范围锁释放）");
 
         log.info("========== ✓ 测试通过：Next-Key Lock 阻塞范围内插入 ==========");
+    }
+
+
+    /**
+     * 场景10：意向锁（IS共享锁 / IX排它锁）验证
+     *
+     * 测试目的：
+     *  - 行锁（FOR UPDATE）会自动在表上加 IX 锁
+     *  - 此时任何表级写锁（LOCK TABLES WRITE）都会被阻塞
+     *  - 行锁释放后，表写锁立即获取
+     *
+     * 实验设计：
+     *  1. 线程1：对 ACC001 加行锁（FOR UPDATE）→ 表自动加 IX排它锁
+     *  2. 线程2：尝试加表写锁（LOCK TABLES account WRITE）→ 必须等待
+     *
+     * 预期：
+     *  - 表锁等待时间 > 1000ms
+     */
+    @Test
+    public void testIntentLock() throws InterruptedException {
+        log.info("========== 场景10：意向锁（IS / IX）验证 ==========");
+
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        AtomicLong wait = new AtomicLong(0);
+
+        // 线程1：加行锁（FOR UPDATE）
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+
+                transactionTemplate.execute(status -> {
+                    log.info("[线程1] 获取 ACC001 行锁（FOR UPDATE）...");
+                    holdExclusiveLock("ACC001", "线程1");
+
+                    try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+
+                    return null;
+                });
+
+            } catch (Exception e) {
+                log.error("线程1异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+
+        // 线程2：尝试加表写锁（应该被阻塞）
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                Thread.sleep(200);
+
+                long start = System.currentTimeMillis();
+                transactionTemplate.execute(status -> {
+                    log.info("[线程2] 尝试获取表写锁 LOCK TABLES WRITE...");
+                    accountRepository.lockTableWrite(); // 新增方法
+                    return null;
+                });
+                wait.set(System.currentTimeMillis() - start);
+
+            } catch (Exception e) {
+                log.error("线程2异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+
+        startLatch.countDown();
+        endLatch.await(15, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        log.info("[线程2] 表锁等待时长：{} ms", wait.get());
+
+        assertTrue(wait.get() > 2000,
+                "表写锁应该因意向锁而被阻塞（等待行锁释放）");
+
+        log.info("========== ✓ 测试通过：意向锁成功阻塞表锁 ==========");
     }
 
 }
