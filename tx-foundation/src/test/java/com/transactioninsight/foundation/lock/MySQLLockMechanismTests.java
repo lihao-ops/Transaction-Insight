@@ -259,25 +259,25 @@ public class MySQLLockMechanismTests {
 
     /**
      * 场景3：共享锁(S锁) 与 排他锁(X锁) 的兼容性验证
-     *
+     * <p>
      * 测试目的：
      * 验证 InnoDB 中 S 锁允许并发读取，而 X 锁必须等待所有 S 锁释放后才能获得。
-     *
+     * <p>
      * 实现思路：
      * 1. 线程1 获取共享锁（SELECT ... LOCK IN SHARE MODE），持锁 2000ms
      * 2. 线程2 获取共享锁，持锁 1000ms —— 可与线程1并发（读读不冲突）
      * 3. 线程3 尝试获取排他锁（SELECT ... FOR UPDATE）
-     *    → 预期：必须等待线程1、线程2 的共享锁全部释放后才能继续执行
-     *
+     * → 预期：必须等待线程1、线程2 的共享锁全部释放后才能继续执行
+     * <p>
      * 预期现象（锁兼容矩阵验证）：
      * - S 与 S 兼容：线程1 与 线程2 可以同时读取
      * - S 与 X 不兼容：线程3 的排他锁必须等待所有共享锁释放
-     *
+     * <p>
      * 实际现象（通过阻塞时间验证）：
      * - 线程1、线程2 均成功立即获取共享锁
      * - 线程3 在执行 FOR UPDATE 语句时阻塞约 ~1500ms（因 S 锁未释放）
      * - 待线程1、线程2 都释放共享锁后，线程3 才继续执行
-     *
+     * <p>
      * 结论：
      * ✔ 共享锁允许并发读取（读读并发）
      * ✔ 排他锁必须等待共享锁释放（读写互斥）
@@ -371,12 +371,12 @@ public class MySQLLockMechanismTests {
 
     /**
      * 场景：共享锁不允许写（验证：SELECT ... FOR SHARE 会阻塞 UPDATE）
-     *
+     * <p>
      * 实现逻辑：
      * 1. 线程1获取共享锁（S锁），并保持 2 秒不释放
      * 2. 线程2在持有 S 锁期间尝试执行 UPDATE
      * 3. UPDATE 必须被阻塞（或超时失败），因为共享锁禁止写
-     *
+     * <p>
      * 预期结果：
      * - S 锁允许多个读取并发执行
      * - S 锁与写操作（X 锁）互斥 —— 写必须等待共享锁释放
@@ -879,4 +879,197 @@ public class MySQLLockMechanismTests {
         log.info("[{}] ✓ 更新成功，version: {} -> {}",
                 threadName, currentVersion, account.getVersion());
     }
+
+
+    /**
+     * 场景8：记录锁（Record Lock）验证
+     * <p>
+     * 测试目的：
+     * - 验证唯一索引 + 等值查询（SELECT ... FOR UPDATE）
+     * 只锁定匹配这一条记录，不锁定前后间隙
+     * <p>
+     * 实验设计：
+     * 1. 线程1：对 ACC001 执行 SELECT ... FOR UPDATE（记录锁）
+     * 2. 线程2：尝试更新 ACC001（必须等待）
+     * 3. 线程3：尝试更新 ACC002（应该立即成功 — 因为不是同一条记录）
+     * <p>
+     * 预期现象：
+     * - 线程1 对 ACC001 加排他锁
+     * - 线程2 更新 ACC001 必须等待（被记录锁阻塞）
+     * - 线程3 更新 ACC002 不会被阻塞（不同记录，不冲突）
+     */
+    @Test
+    public void testRecordLock() throws InterruptedException {
+        log.info("========== 场景8：记录锁（Record Lock）验证 ==========");
+
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(3);
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+
+        AtomicLong thread2Wait = new AtomicLong(0);
+        AtomicLong thread3Wait = new AtomicLong(0);
+
+        // 线程1：对 ACC001 加排他锁
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                transactionTemplate.execute(status -> {
+                    log.info("[线程1] 锁住 ACC001（记录锁）...");
+                    holdExclusiveLock("ACC001", "线程1");
+                    return null;
+                });
+            } catch (Exception e) {
+                log.error("线程1异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+
+        // 线程2：尝试更新 ACC001（必须等待）
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                Thread.sleep(100); // 确保线程1先加锁
+                long start = System.currentTimeMillis();
+                transactionTemplate.execute(status -> {
+                    log.info("[线程2] 尝试更新 ACC001...");
+                    accountRepository.updateBalance("ACC001", new BigDecimal("9999"));
+                    return null;
+                });
+                thread2Wait.set(System.currentTimeMillis() - start);
+            } catch (Exception e) {
+                log.error("线程2异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+
+        // 线程3：尝试更新 ACC002（应该立即成功）
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                Thread.sleep(100);
+                long start = System.currentTimeMillis();
+                transactionTemplate.execute(status -> {
+                    log.info("[线程3] 尝试更新 ACC002...");
+                    accountRepository.updateBalance("ACC002", new BigDecimal("8888"));
+                    return null;
+                });
+                thread3Wait.set(System.currentTimeMillis() - start);
+            } catch (Exception e) {
+                log.error("线程3异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+
+        startLatch.countDown();
+        endLatch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        log.info("[线程2] 更新 ACC001 等待时间：{}ms", thread2Wait.get());
+        log.info("[线程3] 更新 ACC002 等待时间：{}ms", thread3Wait.get());
+
+        // 断言：ACC001 的更新必须等待（>500ms）
+        assertTrue(thread2Wait.get() > 500, "线程2 应该被 ACC001 的记录锁阻塞");
+
+        // 断言：ACC002 不受阻塞（很快）
+        assertTrue(thread3Wait.get() < 300, "线程3 不应该被阻塞，因为 ACC002 不在记录锁范围内");
+
+        log.info("========== ✓ 测试通过：记录锁只锁单条记录，不锁其它记录 ==========");
+    }
+
+    /**
+     * 场景9：临键锁（Next-Key Lock）验证
+     * <p>
+     * 测试目的：
+     * - 验证范围查询 + FOR UPDATE 会产生 next-key lock（记录锁 + 间隙锁）
+     * - 阻塞范围内的 INSERT
+     * <p>
+     * 实验逻辑：
+     * 1. 线程1：执行 SELECT * FROM account WHERE balance BETWEEN 500 AND 3000 FOR UPDATE
+     * → 锁定范围 (500, 3000] 的 next-key lock
+     * 2. 线程2：尝试插入 balance=1000 的新记录 ACC999
+     * → 必须被阻塞（因为属于 next-key lock 范围）
+     * <p>
+     * 预期：
+     * - 插入被阻塞超过 1 秒
+     */
+    @Test
+    public void testNextKeyLock() throws InterruptedException {
+        log.info("========== 场景9：临键锁（Next-Key Lock）验证 ==========");
+
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        AtomicBoolean insertBlocked = new AtomicBoolean(false);
+        AtomicLong wait = new AtomicLong(0);
+
+        // 线程1：范围锁（产生 next-key lock）
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                transactionTemplate.execute(status -> {
+                    log.info("[线程1] 执行范围锁 SELECT ... FOR UPDATE");
+                    entityManager.createQuery(
+                                    "SELECT a FROM Account a WHERE a.balance BETWEEN 500 AND 3000",
+                                    Account.class)
+                            .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                            .getResultList();
+
+                    try {
+                        Thread.sleep(3000); // 故意持锁
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    return null;
+                });
+            } catch (Exception e) {
+                log.error("线程1异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+
+        // 线程2：尝试插入（必须被 next-key lock 阻塞）
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                Thread.sleep(100);
+
+                long start = System.currentTimeMillis();
+                try {
+                    transactionTemplate.execute(status -> {
+                        log.info("[线程2] 尝试插入 ACC999(balance=1000)");
+                        Account acc = new Account();
+                        acc.setAccountNo("ACC999");
+                        acc.setBalance(new BigDecimal("1000"));
+                        accountRepository.save(acc);
+                        return null;
+                    });
+                } catch (Exception e) {
+                    insertBlocked.set(true);
+                }
+
+                wait.set(System.currentTimeMillis() - start);
+            } catch (Exception e) {
+                log.error("线程2异常", e);
+            } finally {
+                endLatch.countDown();
+            }
+        });
+
+        startLatch.countDown();
+        endLatch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        log.info("[线程2] 插入等待时长：{} ms", wait.get());
+
+        assertTrue(wait.get() > 2000,
+                "临键锁应该阻塞插入（INSERT 必须等待范围锁释放）");
+
+        log.info("========== ✓ 测试通过：Next-Key Lock 阻塞范围内插入 ==========");
+    }
+
 }
