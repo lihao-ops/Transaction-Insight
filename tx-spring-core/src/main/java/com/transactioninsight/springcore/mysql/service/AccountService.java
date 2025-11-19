@@ -1,7 +1,7 @@
 package com.transactioninsight.springcore.mysql.service;
 
 import com.transactioninsight.springcore.mysql.domain.Account;
-import com.transactioninsight.springcore.mysql.repository.AccountRepository;
+import com.transactioninsight.springcore.mysql.repository.RepositoryAccountRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,9 +13,9 @@ import java.util.Objects;
 @Transactional(readOnly = true)
 public class AccountService {
 
-    private final AccountRepository accountRepository;
+    private final RepositoryAccountRepository accountRepository;
 
-    public AccountService(AccountRepository accountRepository) {
+    public AccountService(RepositoryAccountRepository accountRepository) {
         this.accountRepository = accountRepository;
     }
 

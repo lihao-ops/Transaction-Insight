@@ -1,7 +1,7 @@
 package com.transactioninsight.foundation.lock;
 
 import com.transactioninsight.foundation.model.Account;
-import com.transactioninsight.foundation.model.AccountRepository;
+import com.transactioninsight.foundation.model.LockAccountRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.OptimisticLockException;
@@ -40,7 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class MySQLLockMechanismTests {
 
     @Autowired
-    private AccountRepository accountRepository;
+    private LockAccountRepository accountRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -496,6 +496,11 @@ public class MySQLLockMechanismTests {
      * - 日志显示两个线程都成功获取第一个锁
      * - 尝试获取第二个锁时发生死锁
      * - 一个事务被回滚，另一个继续执行
+     * | 事务  | 已持有    | 想获取    | 造成依赖    |
+     * | --- | ------ | ------ | ------- |
+     * | (1) | ACC002 | ACC001 | 等事务 (2) |
+     * | (2) | ACC001 | ACC002 | 等事务 (1) |
+     *
      */
     @Test
     public void testDeadlock() throws InterruptedException {

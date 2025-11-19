@@ -81,7 +81,7 @@ import java.util.Optional;
  * @see Account
  * @see LockModeType
  */
-public interface AccountRepository extends JpaRepository<Account, Long> {
+public interface LockAccountRepository extends JpaRepository<Account, Long> {
 
     /**
      * 通过账户号查询账户信息（普通查询，不加锁）

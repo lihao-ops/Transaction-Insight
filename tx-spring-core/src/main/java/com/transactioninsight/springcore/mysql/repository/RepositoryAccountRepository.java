@@ -11,7 +11,7 @@ import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.util.Optional;
 
-public interface AccountRepository extends JpaRepository<Account, Long> {
+public interface RepositoryAccountRepository extends JpaRepository<Account, Long> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from Account a where a.id = :id")

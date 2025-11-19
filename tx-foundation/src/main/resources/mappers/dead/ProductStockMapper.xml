@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.transactioninsight.foundation.deadlock.order_inventory.mapper.ProductStockMapper">
+
+    <!-- ===================== ResultMap 定义 ===================== -->
+
+    <!--
+        ProductStock 完整字段映射
+        解决下划线命名 → 驼峰命名的映射问题
+    -->
+    <resultMap id="ProductStockMap" type="com.transactioninsight.foundation.deadlock.order_inventory.model.ProductStock">
+        <id property="id" column="id"/>
+        <result property="productCode" column="product_code"/>
+        <result property="productName" column="product_name"/>
+        <result property="productType" column="product_type"/>
+        <result property="duration" column="duration"/>
+        <result property="stockQuantity" column="stock_quantity"/>
+        <result property="version" column="version"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <!-- ===================== 查询方法 ===================== -->
+
+    <!--
+        【会导致死锁】无序加锁查询库存
+        实验目的：模拟死锁场景，按传入顺序加锁
+        预期现象：并发时出现 Deadlock found when trying to get lock
+
+        死锁原理：
+        - 事务A：按 [PRO_MONTH, LIMIT_UP_MONTH] 顺序加锁
+        - 事务B：按 [LIMIT_UP_MONTH, PRO_MONTH] 顺序加锁
+        - 形成循环等待 → 死锁
+    -->
+    <select id="selectByCodesForUpdateNoOrder" resultMap="ProductStockMap">
+        SELECT
+        id,
+        product_code,
+        product_name,
+        product_type,
+        duration,
+        stock_quantity,
+        version,
+        created_at,
+        updated_at
+        FROM product_stock
+        WHERE product_code = #{code}
+        FOR UPDATE
+        <!-- 注意：没有 ORDER BY，MySQL 按查找到的顺序加锁（不确定性） -->
+    </select>
+
+    <!--
+        【解决死锁】有序加锁查询库存
+        实验目的：通过统一加锁顺序避免死锁
+        预期现象：并发时按主键升序排队，不会死锁
+
+        核心原理：
+        - ORDER BY id ASC 强制所有事务按相同顺序加锁
+        - 打破循环等待条件
+        - 事务只能串行等待，无法形成死锁环
+    -->
+    <!--即使没有 ORDER BY，InnoDB 也会按照索引顺序（通常是主键 ASC）加锁。写 ASC 与不写 ASC，本质上不影响加锁顺序（前提是使用索引）-->
+    <select id="selectByCodesForUpdateOrdered" resultMap="ProductStockMap">
+        SELECT
+        id,
+        product_code,
+        product_name,
+        product_type,
+        duration,
+        stock_quantity,
+        version,
+        created_at,
+        updated_at
+        FROM product_stock
+        WHERE product_code IN
+        <foreach collection="codes" item="code" open="(" separator="," close=")">
+            #{code}
+        </foreach>
+        ORDER BY id ASC  <!-- 🔑 关键：强制按主键升序加锁 -->
+        FOR UPDATE
+    </select>
+
+    <!--
+        查询当前库存（不加锁）
+        用途：测试验证库存扣减是否正确
+    -->
+    <select id="getStock" resultType="java.lang.Integer">
+        SELECT stock_quantity
+        FROM product_stock
+        WHERE product_code = #{code}
+    </select>
+
+    <!-- ===================== 更新方法 ===================== -->
+
+    <!--
+        扣减库存（带库存校验）
+        注意：此方法必须在已加行锁（FOR UPDATE）后调用
+
+        乐观锁原理：
+        - WHERE 条件包含 stock_quantity >= #{quantity}
+        - 如果库存不足，update 返回 0（影响行数）
+        - 业务层检查返回值判断是否扣减成功
+    -->
+    <update id="deductStock">
+        UPDATE product_stock
+        SET stock_quantity = stock_quantity - #{quantity}
+        WHERE product_code = #{code}
+          AND stock_quantity >= #{quantity}
+    </update>
+
+    <!--
+        重置库存（测试用）
+        用途：在每个测试用例前重置数据
+    -->
+    <update id="resetStock">
+        UPDATE product_stock
+        SET stock_quantity = #{quantity}
+        WHERE product_code = #{code}
+    </update>
+
+</mapper>
