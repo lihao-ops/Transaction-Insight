@@ -1,27 +1,27 @@
 server:
   port: 6002
+
 spring:
   application:
     name: tx-foundation
+
   main:
     web-application-type: servlet
-#  datasource:
-#    driver-class-name: com.mysql.cj.jdbc.Driver
-#    url: jdbc:mysql://localhost:3306/transaction_study?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-#    username: root
-#    password: Q836184425
-#    hikari:
-#      maximum-pool-size: 20
-#      minimum-idle: 5
-#      connection-timeout: 60000
-#      idle-timeout: 300000
-#      pool-name: transaction-insight-pool
-#      connection-test-query: SELECT 1
+
   datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/transaction_study?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: Q836184425
-    driver-class-name: com.mysql.cj.jdbc.Driver
+
+    hikari:
+      maximum-pool-size: 30        # ⭐ 线程池20 → 建议连接池30
+      minimum-idle: 10
+      connection-timeout: 30000    # 保持30秒即可
+      idle-timeout: 60000          # 测试用，连接空闲1分钟回收
+      max-lifetime: 600000         # 10分钟，与MySQL wait_timeout兼容
+      pool-name: tx-foundation-pool
+      connection-test-query: SELECT 1   # MySQL 必加
 
   jpa:
     hibernate:
@@ -30,16 +30,12 @@ spring:
     properties:
       hibernate:
         format_sql: true
-#Hibernate 已自动为 MySQL 选择了合适的方言，且不需要显式指定 hibernate.dialect 属性
-#        dialect: org.hibernate.dialect.MySQLDialect
 
 logging:
   level:
-    com.example.lock: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
 
 mybatis:
   mapper-locations: classpath*:mappers/**/*.xml
   type-aliases-package: com.transactioninsight.foundation.deadlock.order_inventory.model
-

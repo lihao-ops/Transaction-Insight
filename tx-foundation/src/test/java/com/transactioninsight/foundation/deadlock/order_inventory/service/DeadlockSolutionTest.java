@@ -74,8 +74,8 @@ public class DeadlockSolutionTest {
          * 或减少一次性并发数量
          * 你这套顺序加锁代码是正确的，完全没有问题。
          */
-        int threadCount = 100;
-        ExecutorService executor = Executors.newFixedThreadPool(50);
+        int threadCount = 1000;
+        ExecutorService executor = Executors.newFixedThreadPool(20);
         CountDownLatch latch = new CountDownLatch(threadCount);
 
         AtomicInteger successCount = new AtomicInteger(0);
@@ -123,8 +123,8 @@ public class DeadlockSolutionTest {
         // 严格断言
         assert failCount.get() == 0 : "不应有任何失败！";
         assert successCount.get() == threadCount : "必须全部成功！";
-        assert stockMapper.getStock("PRO_MONTH") == 900 : "库存扣减错误！";
-        assert stockMapper.getStock("LIMIT_UP_MONTH") == 900 : "库存扣减错误！";
+        assert stockMapper.getStock("PRO_MONTH") == 0 : "库存扣减错误！";
+        assert stockMapper.getStock("LIMIT_UP_MONTH") == 0 : "库存扣减错误！";
 
         log.warn("✅ 测试通过：零死锁，库存准确！");
     }
