@@ -135,4 +135,54 @@ public class OrderService {
 
         log.info("[安全下单] 用户{}订单完成", userId);
     }
+
+    /**
+     * 乐观锁下单（无行锁，无死锁）
+     */
+    public void createOrderWithOptimistic(Long userId,
+                                          java.util.List<PackageItem> items) {
+
+        log.info("[乐观锁下单] 用户{}，商品={}", userId, items);
+
+        for (PackageItem item : items) {
+            boolean success = deductStockWithRetry(item.getProductCode(), item.getQuantity());
+            if (!success) {
+                throw new RuntimeException("库存扣减失败：" + item.getProductCode());
+            }
+        }
+    }
+
+    /**
+     * === 乐观锁扣减（带 CAS 重试）===
+     */
+    private boolean deductStockWithRetry(String code, int quantity) {
+        final int MAX_RETRY = 5;
+
+        for (int i = 0; i < MAX_RETRY; i++) {
+            ProductStock stock = stockMapper.getStockWithVersion(code);
+            if (stock.getStockQuantity() < quantity) {
+                return false;
+            }
+
+            int updated = stockMapper.deductStockOptimistic(
+                    code, quantity, stock.getVersion()
+            );
+
+            if (updated > 0) {
+                return true; // CAS 成功
+            }
+
+            // CAS 失败 → 重试
+            log.warn("[CAS冲突] code={} version={} 第{}/{}次重试",
+                    code, stock.getVersion(), i + 1, MAX_RETRY);
+
+            try {
+                Thread.sleep(10); // 防止活锁
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        return false;
+    }
 }

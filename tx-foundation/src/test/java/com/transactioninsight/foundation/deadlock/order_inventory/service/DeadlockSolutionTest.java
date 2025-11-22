@@ -128,4 +128,58 @@ public class DeadlockSolutionTest {
 
         log.warn("✅ 测试通过：零死锁，库存准确！");
     }
+
+    /**
+     * 100 用户并发，通过乐观锁扣减库存
+     */
+    @Test
+    public void testOptimisticLockConcurrent() throws InterruptedException {
+        int threadCount = 1000;
+
+        ExecutorService executor = Executors.newFixedThreadPool(50);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failCount = new AtomicInteger(0);
+
+        log.warn("========== 开始乐观锁并发测试 ==========");
+
+        for (int i = 0; i < threadCount; i++) {
+            final long userId = i;
+
+            List<PackageItem> items = Arrays.asList(
+                    new PackageItem("PRO_MONTH", 1),
+                    new PackageItem("LIMIT_UP_MONTH", 1)
+            );
+
+            executor.submit(() -> {
+                try {
+                    orderService.createOrderWithOptimistic(userId, items);
+                    successCount.incrementAndGet();
+                } catch (Exception e) {
+                    failCount.incrementAndGet();
+                    log.error("用户{}失败：{}", userId, e.getMessage());
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+        executor.shutdown();
+
+        log.warn("========== 乐观锁并发测试结果 ==========");
+        log.warn("成功: {} 笔", successCount.get());
+        log.warn("失败: {} 笔（非死锁，正常CAS失败）", failCount.get());
+        log.warn("PRO_MONTH 剩余库存: {}", stockMapper.getStock("PRO_MONTH"));
+        log.warn("LIMIT_UP_MONTH 剩余库存: {}", stockMapper.getStock("LIMIT_UP_MONTH"));
+
+        // 验证：不会出现死锁，因此 failCount 可以 > 0，但不能出现 Deadlock 异常
+        assert stockMapper.getStock("PRO_MONTH")
+                == 1000 - successCount.get() : "PRO_MONTH库存扣减错误！";
+
+        assert stockMapper.getStock("LIMIT_UP_MONTH")
+                == 1000 - successCount.get() : "LIMIT_UP_MONTH库存扣减错误！";
+
+        log.warn("✅ 乐观锁测试结束：无死锁，库存一致！");
+    }
 }

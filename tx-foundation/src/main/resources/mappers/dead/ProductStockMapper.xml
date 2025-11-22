@@ -120,4 +120,21 @@
         WHERE product_code = #{code}
     </update>
 
+    <!--乐观锁-->
+    <!-- 查询库存+版本 -->
+    <select id="getStockWithVersion" resultMap="ProductStockMap">
+        SELECT * FROM product_stock WHERE product_code = #{code}
+    </select>
+
+    <!-- 乐观锁扣减 CAS -->
+    <update id="deductStockOptimistic">
+        UPDATE product_stock
+        SET
+            stock_quantity = stock_quantity - #{quantity},
+            version = version + 1
+        WHERE product_code = #{code}
+          AND stock_quantity >= #{quantity}
+          AND version = #{version}
+    </update>
+
 </mapper>

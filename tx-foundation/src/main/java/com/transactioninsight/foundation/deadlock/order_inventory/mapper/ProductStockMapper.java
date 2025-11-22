@@ -47,4 +47,29 @@ public interface ProductStockMapper {
      * 重置库存（测试用）
      */
     void resetStock(@Param("code") String productCode, @Param("quantity") Integer quantity);
+    // ============================
+    //        乐观锁专用方法
+    // ============================
+
+    /**
+     * 查询库存 + 乐观锁版本号
+     * 用于 CAS 重试机制
+     */
+    ProductStock getStockWithVersion(@Param("code") String code);
+
+    /**
+     * 乐观锁扣减库存（CAS 操作）
+     *
+     * WHERE stock >= ? AND version = ?
+     * version = version + 1
+     *
+     * 返回值：
+     * 1 → CAS 成功
+     * 0 → CAS 失败（版本冲突或库存不足）
+     */
+    int deductStockOptimistic(
+            @Param("code") String productCode,
+            @Param("quantity") Integer quantity,
+            @Param("version") Integer version
+    );
 }
